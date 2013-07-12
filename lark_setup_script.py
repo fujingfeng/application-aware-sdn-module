@@ -26,7 +26,7 @@ send_data = job_ad + "\n" + machine_ad + "\n"
 
 
 # connect to the htcondor module and send out the classads
-HOST, PORT = "localhost", 9998
+HOST, PORT = "localhost", 9008
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
