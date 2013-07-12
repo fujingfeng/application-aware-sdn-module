@@ -38,10 +38,7 @@ if __name__ == "__main__":
     HOST, PORT = "localhost", 9008
 
     server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
-    server_thread = threading.Thread(target=server.serve_forever)
-    # keep the server thread alive when the main thread terminates
-    server_thread.daemon = False
-    server_thread.start()
+    server.serve_forever()
 
 
 
