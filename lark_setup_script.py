@@ -22,7 +22,10 @@ assert separator_line == "------\n"
 # get machine classad from stdin
 machine_ad = sys.stdin.readline()
 
-send_data = job_ad + "\n" + machine_ad + "\n"
+# use "SEND" as message type to tell htcondor module
+# that this is the message from lark setup script which
+# sends the full job and machine ClassAds
+send_data = "SEND" + "\n" + job_ad + machine_ad
 
 
 # connect to the htcondor module and send out the classads
