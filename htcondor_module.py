@@ -13,6 +13,10 @@ import threading
 import SocketServer
 import classad
 
+# use a dictionary to store all the network classads, internal IPv4 address
+# is used as the key
+classadDict = {}
+
 class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
     def handle(self):
         # there are two possible kinds of request to handle
@@ -23,6 +27,8 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         data = self.request.recv(16384).strip()
         cur_thread = threading.current_thread()
         lines = data.split("\n")
+
+        print "Message type is: " + lines[0]
 
         if (lines[0] == "SEND"):
             job_ad = classad.ClassAd(lines[1])
@@ -41,7 +47,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
             network_classad["LarkInnerAddressIPv4"] = ip_src
         
             threadLock.acquire()
-            self.classadDict[ip_src] = network_classad.__str__()
+            classadDict[ip_src] = network_classad.__str__()
             threadLock.release()
         elif (lines[0] == "REQUEST"):
             network_classad = None
@@ -52,8 +58,11 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 network_classad = classadDict[ip_src]
             threadLock.release()
             if network_classad is not None:
-                self.request.sendall("FOUND"+ "\n" + network_classad)
+                print "Network classad is: {0}".format(network_classad)
+                print "Found network classad for IP {0}, send it back.".format(ip_src)
+                self.request.sendall("FOUND" + network_classad)
             else:
+                print "Could not find network classad for IP {0}, send back no found.".format(ip_src)
                 self.request.sendall("NOFOUND" + "\n")
             self.request.close()
         else:
@@ -68,15 +77,12 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     def __init__(self, server_address, RequestHandlerClass):
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
-        # use a dictionary to store all the network classads, internal IPv4 address
-        # is used as the key
-        self.classadDict = {}
 
 if __name__ == "__main__":
 
     threadLock = threading.Lock()
 
-    HOST, PORT = "localhost", 9008
+    HOST, PORT = "129.93.244.211", 9008
     server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
     server.serve_forever()
 

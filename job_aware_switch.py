@@ -17,6 +17,7 @@ network classad.
 from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.util import str_to_bool
+from pox.lib.util import dpid_to_str
 import time
 import sys
 import socket
@@ -32,7 +33,7 @@ class JobAwareSwitch ():
     def __init__ (self, connection):
         # Switch we will be adding L2 learning switch capabilitites to
         self.connection = connection
-        self.mactoPort = {}
+        self.macToPort = {}
         connection.addListeners(self)
 
     def _handle_PacketIn (self, event):
@@ -45,7 +46,7 @@ class JobAwareSwitch ():
         # drop LLDP packet
         # send command without actions
         if packet.type == packet.LLDP_TYPE:
-            log.debug("dropping LLDP packets")
+            # log.debug("dropping LLDP packets")
             msg = of.ofp_packet_out()
             msg.buffer_id = event.ofp.buffer_id
             msg.in_port = event.port
@@ -62,10 +63,10 @@ class JobAwareSwitch ():
         # connect to htcondor module to ask for the network classad
         # corresponding to this source ipv4 address
         if ipv4src is not None:
-            HOST, PORT = "localhost", 9008
+            HOST, PORT = "129.93.244.211", 9008
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             
-            log.debug("Connecting %s.%i for network classad for IP %s", (HOST, PORT, str(ipv4src)))
+            # log.debug("Connecting %s.%i for network classad for IP %s", HOST, PORT, str(ipv4src))
             try:
                 sock.connect((HOST, PORT))
                 sock.sendall("REQUEST" + "\n" + str(ipv4src))
@@ -80,10 +81,17 @@ class JobAwareSwitch ():
                 # drop the packets in this flow if the owner is from 'zzhang'
                 # currenlty, this is only hard coded for simplicity
                 
-                log.debug("Network classad for IP %s is found." %s (str(ipv4src,)))
+                log.debug("Network classad for IP %s is found.", str(ipv4src))
 
                 # parse the network classad string into classad format
-                network_classad = classad.ClassAd(lines[1])
+                # debug to print out received classad string
+                log.debug("Received classad string is:")
+                network_classad = str()
+                for line in lines[1:]:
+                    print line
+                    network_classad = network_classad + line
+
+                network_classad = classad.ClassAd(network_classad)
                 owner = network_classad["Owner"]
                 if owner == 'zzhang':
                     # drop
@@ -101,7 +109,7 @@ class JobAwareSwitch ():
         if packet.dst not in self.macToPort:
             # does not know out port
             # flood the packet
-            log.debug("Port for %s unkown -- flooding" % (packet.dst,))
+            # log.debug("Port for %s unkown -- flooding", packet.dst)
             msg = of.ofp_packet_out()
             msg.actions.append(of.ofp_action_output(port = of.OFPP_FLOOD))
             msg.buffer_id = event.ofp.buffer_id
@@ -112,8 +120,8 @@ class JobAwareSwitch ():
             # check whether the packet's destination is the same port it come from
             port = self.macToPort[packet.dst]
             if port == event.port:
-                log.warning("Same port for packet from %s -> %s on %s.%s. Drop."
-                    % (packet.src, packet.dst, dpid_to_str(event.dpid), port))
+                # log.warning("Same port for packet from %s -> %s on %s.%s. Drop."
+                #    % (packet.src, packet.dst, dpid_to_str(event.dpid), port))
                 # drop
                 msg = of.ofp_packet_out()
                 msg.buffer_id = event.ofp.buffer_id
@@ -122,7 +130,7 @@ class JobAwareSwitch ():
             else:
                 # we know which port this packet should go
                 # just send out a of_packet_out message
-                log.debug("packet from %s.%i -> %s.%i" % (packet.src, event.port, packet.dst, port))
+                # log.debug("packet from %s.%i -> %s.%i", packet.src, event.port, packet.dst, port)
                 msg = of.ofp_packet_out()
                 msg.actions.append(of.ofp_action_output(port = port))
                 msg.buffer_id = event.ofp.buffer_id
@@ -137,8 +145,8 @@ class job_aware_switch (object):
     def __init__ (self):
         core.openflow.addListeners(self)
 
-    def __handle_ConnectionUp (self, event):
-        log.debug("Connection %s" %s (event.connection,))
+    def _handle_ConnectionUp (self, event):
+        log.debug("Connection %s" % (event.connection,))
         JobAwareSwitch(event.connection)
 
 def launch ():
