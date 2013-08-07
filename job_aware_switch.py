@@ -104,6 +104,36 @@ class JobAwareSwitch ():
                     msg.in_port = event.port
                     self.connection.send(msg)
                     return
+                else:
+                    # job owner is not in blocked user list, check the destination of this flow
+                    # if the ipv4dst is corresponding to htcondor jobs from other users, also 
+                    # drop the packet to achieve job isolation among different users.
+                    if ipv4dst is not None:
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        try:
+                            sock.connect((HOST, PORT))
+                            sock.sendall("REQUEST" + "\n" + str(ipv4dst))
+                            received = sock.recv(1024).strip()
+                        finally:
+                            sock.close()
+
+                        lines = received.split("\n")
+                        if lines[0] == "FOUND":
+                            log.debug("Network classad for IP %s is found.", str(ipv4dst))
+                            network_classad = str()
+                            for line in lines[1:]:
+                                network_classad = network_classad + line
+                            network_classad = classad.ClassAd(network_classad)
+                            owner_dst = network_classad["Owner"]
+
+                            if owner != owner_dst:
+                                # drop packet
+                                log.debug("HTCondor job from user %s is trying to communicate with job from user %s. Drop packet.", owner, owner_dst)
+                                msg = of.ofp_packet_out()
+                                msg.buffer_id = event.ofp.buffer_id
+                                msg.in_port = event.port
+                                self.connection.send(msg)
+                                return
 
             elif lines[0] == "NOFOUND":
                 # proceed as normal packet using l2 switch rules
