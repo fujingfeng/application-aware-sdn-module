@@ -16,6 +16,8 @@ import SocketServer
 import classad
 from pox.core import core
 
+log = core.getLogger()
+
 # use a dictionary to store all the network classads, internal IPv4 address
 # is used as the key
 classadDict = {}
@@ -31,7 +33,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         cur_thread = threading.current_thread()
         lines = data.split("\n")
 
-        print "Message type is: " + lines[0]
+        log.debug("Message type is: %s", lines[0])
 
         if (lines[0] == "SEND"):
             job_ad = classad.ClassAd(lines[1])
@@ -39,8 +41,8 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
             # parse out the IP address of internal eth device and the job owner
             ip_src = machine_ad.eval("LarkInnerAddressIPv4")
             job_owner = job_ad.eval("Owner")
-            print "IP address of internal ethernet device is: " + ip_src
-            print "The owner of submitted job is: " + job_owner
+            log.debug("IP address of internal ethernet device is: %s", ip_src)
+            log.debug("The owner of submitted job is: %s", job_owner)
 
             self.request.close()
 
@@ -61,15 +63,15 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 network_classad = classadDict[ip_src]
             threadLock.release()
             if network_classad is not None:
-                print "Network classad is: {0}".format(network_classad)
-                print "Found network classad for IP {0}, send it back.".format(ip_src)
+                log.debug("Network classad is %s", network_classad)
+                log.debug("Found network classad for IP %s, send it back.", ip_src)
                 self.request.sendall("FOUND" + network_classad)
             else:
-                print "Could not find network classad for IP {0}, send back no found.".format(ip_src)
+                log.debug("Could not find network classad for IP %s, send back no found.", ip_src)
                 self.request.sendall("NOFOUND" + "\n")
             self.request.close()
         else:
-            print "Unknown message type, ignoring"
+            log.debug("Unknown message type, ignoring...")
             self.request.close()
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
