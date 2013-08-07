@@ -78,8 +78,6 @@ class JobAwareSwitch ():
             # check whether network classad is found at htcondor module
             lines = received.split("\n")
             if lines[0] == "FOUND":
-                # drop the packets in this flow if the owner is from 'zzhang'
-                # currenlty, this is only hard coded for simplicity
                 
                 log.debug("Network classad for IP %s is found.", str(ipv4src))
 
@@ -93,9 +91,14 @@ class JobAwareSwitch ():
 
                 network_classad = classad.ClassAd(network_classad)
                 owner = network_classad["Owner"]
-                if owner == 'zzhang':
+                # query htcondor config files to get the list of blocked users
+                # if the owner is in the list, drop the packets from this user.
+
+                blocked_users = htcondor.param["BLOCKED_USERS"]
+                blocked_users = blocked_users.split(',')
+                if owner in blocked_users:
                     # drop
-                    log.debug("Packet is from htcondor job owner zzhang. Drop.")
+                    log.debug("Packet is from htcondor job whose owner is in the blocked user list. Drop.")
                     msg = of.ofp_packet_out()
                     msg.buffer_id = event.ofp.buffer_id
                     msg.in_port = event.port
