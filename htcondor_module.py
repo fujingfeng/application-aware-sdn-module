@@ -8,10 +8,13 @@
 # scheduling.
 #
 
+import sys
+import time
 import socket
 import threading
 import SocketServer
 import classad
+from pox.core import core
 
 # use a dictionary to store all the network classads, internal IPv4 address
 # is used as the key
@@ -78,8 +81,7 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     def __init__(self, server_address, RequestHandlerClass):
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
-if __name__ == "__main__":
-
+def launch():
     threadLock = threading.Lock()
 
     HOST, PORT = "129.93.244.211", 9008
