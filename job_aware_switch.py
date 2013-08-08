@@ -22,6 +22,7 @@ import time
 import sys
 import socket
 import classad
+import htcondor
 
 log = core.getLogger()
 
