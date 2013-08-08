@@ -17,6 +17,12 @@ import classad
 from pox.core import core
 
 log = core.getLogger()
+try:
+    serverlog = log.getChild("server")
+except:
+    serverlog = core.getLogger("htcondor_module.server")
+
+threadLock = threading.Lock()
 
 # use a dictionary to store all the network classads, internal IPv4 address
 # is used as the key
@@ -33,7 +39,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         cur_thread = threading.current_thread()
         lines = data.split("\n")
 
-        log.debug("Message type is: %s", lines[0])
+        serverlog.debug("Message type is: %s", lines[0])
 
         if (lines[0] == "SEND"):
             job_ad = classad.ClassAd(lines[1])
@@ -41,8 +47,8 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
             # parse out the IP address of internal eth device and the job owner
             ip_src = machine_ad.eval("LarkInnerAddressIPv4")
             job_owner = job_ad.eval("Owner")
-            log.debug("IP address of internal ethernet device is: %s", ip_src)
-            log.debug("The owner of submitted job is: %s", job_owner)
+            serverlog.debug("IP address of internal ethernet device is: %s", ip_src)
+            serverlog.debug("The owner of submitted job is: %s", job_owner)
 
             self.request.close()
 
@@ -63,15 +69,15 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 network_classad = classadDict[ip_src]
             threadLock.release()
             if network_classad is not None:
-                log.debug("Network classad is %s", network_classad)
-                log.debug("Found network classad for IP %s, send it back.", ip_src)
+                serverlog.debug("Network classad is %s", network_classad)
+                serverlog.debug("Found network classad for IP %s, send it back.", ip_src)
                 self.request.sendall("FOUND" + network_classad)
             else:
-                log.debug("Could not find network classad for IP %s, send back no found.", ip_src)
+                serverlog.debug("Could not find network classad for IP %s, send back no found.", ip_src)
                 self.request.sendall("NOFOUND" + "\n")
             self.request.close()
         else:
-            log.debug("Unknown message type, ignoring...")
+            serverlog.debug("Unknown message type, ignoring...")
             self.request.close()
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -84,11 +90,24 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
 def launch():
-    threadLock = threading.Lock()
+    #threadLock = threading.Lock()
 
     HOST, PORT = "129.93.244.211", 9008
     server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
-    server.serve_forever()
+    core.register("TCPServer", server)
+    
+    def run():
+        try:
+            log.debug("Server starts and listens on %s:%i", HOST, PORT)
+            server.serve_forever()
+        except:
+            pass
+        log.info("Server quit")
+
+    thread = threading.Thread(target=run)
+    thread.daemon = True
+    thread.start()
+
 
 
 
