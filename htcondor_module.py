@@ -39,7 +39,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         cur_thread = threading.current_thread()
         lines = data.split("\n")
 
-        serverlog.debug("Message type is: %s", lines[0])
+        #serverlog.debug("Message type is: %s", lines[0])
 
         if (lines[0] == "SEND"):
             job_ad = classad.ClassAd(lines[1])
@@ -73,9 +73,18 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 serverlog.debug("Found network classad for IP %s, send it back.", ip_src)
                 self.request.sendall("FOUND" + network_classad)
             else:
-                serverlog.debug("Could not find network classad for IP %s, send back no found.", ip_src)
+                #serverlog.debug("Could not find network classad for IP %s, send back no found.", ip_src)
                 self.request.sendall("NOFOUND" + "\n")
             self.request.close()
+        elif (lines[0] == "CLEAN"):
+            ip_src = lines[1]
+            threadLock.acquire()
+            # check whether classadDict has the given key and delete corresponding
+            # network classad if it is in the dictionary
+            log.debug("Delete network classad in classad dictionary for IP address %s", ip_src)
+            if ip_src in classadDict:
+                del classadDict[ip_src]
+            threadLock.release()
         else:
             serverlog.debug("Unknown message type, ignoring...")
             self.request.close()

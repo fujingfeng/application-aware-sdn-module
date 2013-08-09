@@ -26,8 +26,8 @@ import htcondor
 
 log = core.getLogger()
 
-HARD_TIMEOUT = 30
-IDLE_TIMEOUT = 30
+HARD_TIMEOUT = 10
+IDLE_TIMEOUT = 5
 
 class JobAwareSwitch ():
     
@@ -100,9 +100,15 @@ class JobAwareSwitch ():
                 if owner in blocked_users:
                     # drop
                     log.debug("Packet is from htcondor job whose owner is in the blocked user list. Drop.")
-                    msg = of.ofp_packet_out()
+                    # installing openflow rule
+                    log.debug("Installing openflow rule to switch to continue dropping similar packets for a while.")
+                    msg = of.ofp_flow_mod()
+                    msg.priority = 12
+                    msg.match.nw_src = ipv4src
+                    msg.match.dl_src = packet.src
+                    msg.idle_timeout = IDLE_TIMEOUT
+                    msg.hard_timeout = HARD_TIMEOUT
                     msg.buffer_id = event.ofp.buffer_id
-                    msg.in_port = event.port
                     self.connection.send(msg)
                     return
                 else:
@@ -130,9 +136,15 @@ class JobAwareSwitch ():
                             if owner != owner_dst:
                                 # drop packet
                                 log.debug("HTCondor job from user %s is trying to communicate with job from user %s. Drop packet.", owner, owner_dst)
-                                msg = of.ofp_packet_out()
+                                # installing openflow rule to drop similar packets for a while
+                                msg = of.ofp_flow_mod()
+                                msg.priority = 12
+                                msg.match.nw_src = ipv4src
+                                msg.match.dl_src = packet.src
+                                msg.match.nw_dst = ipv4dst
+                                msg.idle_timeout = IDLE_TIMEOUT
+                                msg.hard_timeout = HARD_TIMEOUT
                                 msg.buffer_id = event.ofp.buffer_id
-                                msg.in_port = event.port
                                 self.connection.send(msg)
                                 return
 
@@ -156,19 +168,26 @@ class JobAwareSwitch ():
             if port == event.port:
                 # log.warning("Same port for packet from %s -> %s on %s.%s. Drop."
                 #    % (packet.src, packet.dst, dpid_to_str(event.dpid), port))
-                # drop
-                msg = of.ofp_packet_out()
+                # install openflow rule to drop similar packets for a while
+                msg = of.ofp_flow_mod()
+                msg.match = of.ofp_match.from_packet(packet)
+                msg.idle_timeout = IDLE_TIMEOUT
+                msg.hard_timeout = HARD_TIMEOUT
                 msg.buffer_id = event.ofp.buffer_id
-                msg.in_port = event.port
                 self.connection.send(msg)
             else:
                 # we know which port this packet should go
                 # just send out a of_packet_out message
                 # log.debug("packet from %s.%i -> %s.%i", packet.src, event.port, packet.dst, port)
-                msg = of.ofp_packet_out()
+                # log.debug("installing openflow rule for this match")
+                msg = of.ofp_flow_mod()
+                msg.priority = 10
+                msg.match.dl_src = packet.src
+                msg.match.dl_dst = packet.dst
+                msg.idle_timeout = IDLE_TIMEOUT
+                msg.hard_timeout = HARD_TIMEOUT
                 msg.actions.append(of.ofp_action_output(port = port))
                 msg.buffer_id = event.ofp.buffer_id
-                msg.in_port = event.port
                 self.connection.send(msg)
 
 
