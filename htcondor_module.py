@@ -14,6 +14,7 @@ import socket
 import threading
 import SocketServer
 import classad
+import htcondor
 from pox.core import core
 
 log = core.getLogger()
@@ -100,8 +101,9 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 def launch():
     #threadLock = threading.Lock()
-
-    HOST, PORT = "129.93.244.211", 9008
+    # make HOST to be IPv4 address of the host where the pox controller is running
+    HOST = htcondor.param["SDN_CONTROLLER_HOST"]
+    PORT = int(htcondor.param["SDN_CONTROLLER_PORT"])
     server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
     core.register("TCPServer", server)
     

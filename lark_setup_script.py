@@ -11,6 +11,7 @@ import sys
 import classad
 import re
 import socket
+import htcondor
 
 # get job classad from stdin
 job_ad = sys.stdin.readline()
@@ -29,7 +30,8 @@ send_data = "SEND" + "\n" + job_ad + machine_ad
 
 
 # connect to the htcondor module and send out the classads
-HOST, PORT = "localhost", 9008
+HOST = htcondor.param["SDN_CONTROLLER_HOST"]
+PORT = int(htcondor.param["SDN_CONTROLLER_PORT"])
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
