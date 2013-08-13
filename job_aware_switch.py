@@ -29,6 +29,37 @@ log = core.getLogger()
 HARD_TIMEOUT = 10
 IDLE_TIMEOUT = 5
 
+local_network_start = []
+local_network_end = []
+
+# calculated the range of IP address of local network
+def get_network_info():
+    """ Returns the local network IP address and subnet mask """
+    f = open('/proc/net/route', 'r')
+    lines = f.readlines()
+    words = lines[1].split()
+    local_network_ip = words[1]
+    subnet_mask = words[7]
+    local_network_array = []
+    subnet_mask_array = []
+    for i in range(8, 1, -2):
+        octet = local_network_ip[i-2:i]
+        octet = int(octet, 16)
+        local_network_array.append(octet)
+        octet = subnet_mask[i-2:i]
+        octet = int(octet, 16)
+        subnet_mask_array.append(octet)
+    for i in range(4):
+        local_network_start.append(local_network_array[i] & subnet_mask_array[i])
+        local_network_end.append(local_network_array[i] | ((~subnet_mask_array[i]) & 0xFF))
+
+# check whether the destination is within the local network range
+def check_within_local_network(dest):
+    for i in range(4):
+       if(dest[i] < local_network_start[i] or dest[i] > local_network_end[i]):
+           return False
+    return True
+
 class JobAwareSwitch ():
     
     def __init__ (self, connection):
@@ -114,40 +145,68 @@ class JobAwareSwitch ():
                     return
                 else:
                     # job owner is not in blocked user list, check the destination of this flow
-                    # if the ipv4dst is corresponding to htcondor jobs from other users, also 
-                    # drop the packet to achieve job isolation among different users.
+                    # 1. If the destination is IP adress outside local network, check whether the 
+                    #    user is in the list of users who are blocked to communicate with outside 
+                    #    network, if it is in, then drop the packet, otherwise make the packet through
+                    # 2. If the destination is within local network, further check if the ipv4dst is 
+                    #    corresponding to htcondor jobs from other users, if it is, also drop the packet
+                    #    to achieve job isolation among different users.
                     if ipv4dst is not None:
-                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        try:
-                            sock.connect((HOST, PORT))
-                            sock.sendall("REQUEST" + "\n" + str(ipv4dst))
-                            received = sock.recv(1024).strip()
-                        finally:
-                            sock.close()
-
-                        lines = received.split("\n")
-                        if lines[0] == "FOUND":
-                            log.debug("Network classad for IP %s is found.", str(ipv4dst))
-                            network_classad = str()
-                            for line in lines[1:]:
-                                network_classad = network_classad + line
-                            network_classad = classad.ClassAd(network_classad)
-                            owner_dst = network_classad["Owner"]
-
-                            if owner != owner_dst:
-                                # drop packet
-                                log.debug("HTCondor job from user %s is trying to communicate with job from user %s. Drop packet.", owner, owner_dst)
-                                # installing openflow rule to drop similar packets for a while
+                        dest_in_binary = []
+                        words = str(ipv4dst).split('.')
+                        for i in range(4):
+                            dest_in_binary.append(int(words[i]))
+                        # case 1:
+                        if not check_within_local_network(dest_in_binary):
+                            blocked_users = htcondor.param["BLOCKED_USERS_OUTSIDE"]
+                            blocked_users = blocked_users.split(',')
+                            if owner in blocked_users:
+                                # drop
+                                log.debug("Packet is from the htcondor job whose owner is not allowed to communicate with outside network. Drop.")
+                                log.debug("Destination IP address is %s", str(ipv4dst))
+                                # install openflow rule
+                                log.debug("Installing openflow rule to switch to continue dropping similar packets for a while.")
                                 msg = of.ofp_flow_mod()
                                 msg.priority = 12
                                 msg.match.nw_src = ipv4src
-                                msg.match.dl_src = packet.src
                                 msg.match.nw_dst = ipv4dst
                                 msg.idle_timeout = IDLE_TIMEOUT
                                 msg.hard_timeout = HARD_TIMEOUT
                                 msg.buffer_id = event.ofp.buffer_id
                                 self.connection.send(msg)
                                 return
+                        else:
+                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            try:
+                                sock.connect((HOST, PORT))
+                                sock.sendall("REQUEST" + "\n" + str(ipv4dst))
+                                received = sock.recv(1024).strip()
+                            finally:
+                                sock.close()
+
+                            lines = received.split("\n")
+                            if lines[0] == "FOUND":
+                                log.debug("Network classad for IP %s is found.", str(ipv4dst))
+                                network_classad = str()
+                                for line in lines[1:]:
+                                    network_classad = network_classad + line
+                                network_classad = classad.ClassAd(network_classad)
+                                owner_dst = network_classad["Owner"]
+
+                                if owner != owner_dst:
+                                    # drop packet
+                                    log.debug("HTCondor job from user %s is trying to communicate with job from user %s. Drop packet.", owner, owner_dst)
+                                    # installing openflow rule to drop similar packets for a while
+                                    msg = of.ofp_flow_mod()
+                                    msg.priority = 12
+                                    msg.match.nw_src = ipv4src
+                                    msg.match.dl_src = packet.src
+                                    msg.match.nw_dst = ipv4dst
+                                    msg.idle_timeout = IDLE_TIMEOUT
+                                    msg.hard_timeout = HARD_TIMEOUT
+                                    msg.buffer_id = event.ofp.buffer_id
+                                    self.connection.send(msg)
+                                    return
 
             elif lines[0] == "NOFOUND":
                 # proceed as normal packet using l2 switch rules
@@ -207,4 +266,5 @@ def launch ():
     """
     Starts an htcondor job-aware switch
     """
+    get_network_info()
     core.registerNew(job_aware_switch)
