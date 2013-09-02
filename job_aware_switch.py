@@ -144,38 +144,19 @@ class JobAwareSwitch ():
                     self.connection.send(msg)
                     return
                 else:
-                    # job owner is not in blocked user list, check the destination of this flow
-                    # 1. If the destination is IP adress outside local network, check whether the 
-                    #    user is in the list of users who are blocked to communicate with outside 
-                    #    network, if it is in, then drop the packet, otherwise make the packet through
-                    # 2. If the destination is within local network, further check if the ipv4dst is 
-                    #    corresponding to htcondor jobs from other users, if it is, also drop the packet
-                    #    to achieve job isolation among different users.
-                    if ipv4dst is not None:
-                        dest_in_binary = []
-                        words = str(ipv4dst).split('.')
-                        for i in range(4):
-                            dest_in_binary.append(int(words[i]))
-                        # case 1:
-                        if not check_within_local_network(dest_in_binary):
-                            blocked_users = htcondor.param["BLOCKED_USERS_OUTSIDE"]
-                            blocked_users = blocked_users.split(',')
-                            if owner in blocked_users:
-                                # drop
-                                log.debug("Packet is from the htcondor job whose owner is not allowed to communicate with outside network. Drop.")
-                                log.debug("Destination IP address is %s", str(ipv4dst))
-                                # install openflow rule
-                                log.debug("Installing openflow rule to switch to continue dropping similar packets for a while.")
-                                msg = of.ofp_flow_mod()
-                                msg.priority = 12
-                                msg.match.nw_src = ipv4src
-                                msg.match.nw_dst = ipv4dst
-                                msg.idle_timeout = IDLE_TIMEOUT
-                                msg.hard_timeout = HARD_TIMEOUT
-                                msg.buffer_id = event.ofp.buffer_id
-                                self.connection.send(msg)
-                                return
-                        else:
+                    # job owner is not in blocked user list, further check whether the job owner is
+                    # in the list that is blocked to communicate with the outside network.
+                    # 1. If it is, further check the destination IP adress of this flow, if it is 
+                    #    neither to the same job owner nor in the white list, then drop the packet, 
+                    #    otherwise make the packet through.
+                    # 2. If it is not, then this job flow can communicate with anywhere except the jobs 
+                    #    not from its own job owner, if that is the case, just drop the packet; otherwise
+                    #    make it through.
+                    blocked_users = htcondor.param["BLOCKED_USERS_OUTSIDE"]
+                    blocked_users = blocked_users.split(',')
+                    # case 1
+                    if owner in blocked_users:
+                        if ipv4dst is not None:
                             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                             try:
                                 sock.connect((HOST, PORT))
@@ -183,7 +164,6 @@ class JobAwareSwitch ():
                                 received = sock.recv(1024).strip()
                             finally:
                                 sock.close()
-
                             lines = received.split("\n")
                             if lines[0] == "FOUND":
                                 log.debug("Network classad for IP %s is found.", str(ipv4dst))
@@ -194,7 +174,7 @@ class JobAwareSwitch ():
                                 owner_dst = network_classad["Owner"]
 
                                 if owner != owner_dst:
-                                    # drop packet
+                                    # drop
                                     log.debug("HTCondor job from user %s is trying to communicate with job from user %s. Drop packet.", owner, owner_dst)
                                     # installing openflow rule to drop similar packets for a while
                                     msg = of.ofp_flow_mod()
@@ -207,6 +187,58 @@ class JobAwareSwitch ():
                                     msg.buffer_id = event.ofp.buffer_id
                                     self.connection.send(msg)
                                     return
+                            else:
+                                # network classad not found, ipv4dst is not to condor jobs
+                                # further check if it is in white list
+                                white_list_ip = htcondor.param["WHITE_LIST_IP"]
+                                white_list_ip = white_list_ip.split(',')
+                                if str(ipv4dst) not in white_list_ip:
+                                    # drop
+                                    log.debug("HTCondor job from user %s that is blocked to communicate with outside network tries to do that. Drop", owner)
+                                    log.debug("Destination IP address is %s", str(ipv4dst))
+                                    msg = of.ofp_flow_mod()
+                                    msg.priority = 12
+                                    msg.match.nw_src = ipv4src
+                                    msg.match.dl_src = packet.src
+                                    msg.match.nw_dst = ipv4dst
+                                    msg.idle_timeout = IDLE_TIMEOUT
+                                    msg.hard_timeout = HARD_TIMEOUT
+                                    msg.buffer_id = event.ofp.buffer_id
+                                    self.connection.send(msg)
+                                    return
+                    # case 2
+                    else:
+                        if ipv4dst is not None:
+                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            try:
+                                sock.connect((HOST, PORT))
+                                sock.sendall("REQUEST" + "\n" + str(ipv4dst))
+                                received = sock.recv(1024).strip()
+                            finally:
+                                sock.close()
+                            lines = received.split("\n")
+                            if lines[0] == "FOUND":
+                                log.debug("Network classad for IP %s is found.", str(ipv4dst))
+                                network_classad = str()
+                                for line in lines[1:]:
+                                    network_classad = network_classad + line
+                                network_classad = classad.ClassAd(network_classad)
+                                owner_dst = network_classad["Owner"]
+
+                                if owner != owner_dst:
+                                    # drop
+                                    log.debug("HTCondor job from user %s tries to communicate with job from user %s. Drop packet.", owner, owner_dst)
+                                    msg = of.ofp_flow_mod()
+                                    msg.priority = 12
+                                    msg.match.nw_src = ipv4src
+                                    msg.match.dl_src = packet.src
+                                    msg.match.nw_dst = ipv4dst
+                                    msg.idle_timeout = IDLE_TIMEOUT
+                                    msg.hard_timeout = HARD_TIMEOUT
+                                    msg.buffer_id = event.ofp.buffer_id
+                                    self.connection.send(msg)
+                                    return
+
 
             elif lines[0] == "NOFOUND":
                 # proceed as normal packet using l2 switch rules

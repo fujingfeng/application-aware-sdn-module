@@ -11,6 +11,7 @@ import sys
 import classad
 import re
 import socket
+import htcondor
 
 # get job classad from stdin
 job_ad = sys.stdin.readline()
