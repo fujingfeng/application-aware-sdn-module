@@ -95,8 +95,8 @@ class JobAwareSwitch ():
         # connect to htcondor module to ask for the network classad
         # corresponding to this source ipv4 address
         if ipv4src is not None:
-            HOST = htcondor.param["SDN_CONTROLLER_HOST"]
-            PORT = int(htcondor.param["SDN_CONTROLLER_PORT"])
+            HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
+            PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             
             # log.debug("Connecting %s.%i for network classad for IP %s", HOST, PORT, str(ipv4src))

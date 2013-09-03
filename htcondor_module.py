@@ -102,8 +102,8 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 def launch():
     #threadLock = threading.Lock()
     # make HOST to be IPv4 address of the host where the pox controller is running
-    HOST = htcondor.param["SDN_CONTROLLER_HOST"]
-    PORT = int(htcondor.param["SDN_CONTROLLER_PORT"])
+    HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
+    PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
     server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
     core.register("TCPServer", server)
     

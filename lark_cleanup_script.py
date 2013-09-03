@@ -32,8 +32,8 @@ ip_src = machine_ad.eval("LarkInnerAddressIPv4")
 send_data = "CLEAN" + "\n" + ip_src
 
 # connect to the htcondor module and send out the info
-HOST = htcondor.param["SDN_CONTROLLER_HOST"]
-PORT = int(htcondor.param["SDN_CONTROLLER_PORT"])
+HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
+PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
