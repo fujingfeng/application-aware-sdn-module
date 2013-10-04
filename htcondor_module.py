@@ -48,8 +48,10 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
             # parse out the IP address of internal eth device and the job owner
             ip_src = machine_ad.eval("LarkInnerAddressIPv4")
             job_owner = job_ad.eval("Owner")
+            job_group = job_ad.eval("AcctGroup")
             serverlog.debug("IP address of internal ethernet device is: %s", ip_src)
             serverlog.debug("The owner of submitted job is: %s", job_owner)
+            serverlog.debug("The owner of submitted job belongs to accounting group %s", job_group);
 
             self.request.close()
 
@@ -57,6 +59,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
             # insert all the network policy related classad attr to network classad
             network_classad["Owner"] = job_owner
             network_classad["LarkInnerAddressIPv4"] = ip_src
+            network_classad["AcctGroup"] = job_group
         
             threadLock.acquire()
             classadDict[ip_src] = network_classad.__str__()

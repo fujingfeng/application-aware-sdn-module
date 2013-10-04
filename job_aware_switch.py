@@ -29,6 +29,10 @@ log = core.getLogger()
 HARD_TIMEOUT = 10
 IDLE_TIMEOUT = 5
 
+# indicate the mac address  of the core switch
+# this should be the mac address of MLXe at HCC
+core_switch_mac = "00-1a-a0-09-fb-c3"
+
 local_network_start = []
 local_network_end = []
 
@@ -71,6 +75,9 @@ class JobAwareSwitch ():
     def _handle_PacketIn (self, event):
         # parsing the input packet
         packet = event.parsed
+
+        # parse the mac address of switch which initiate this connection
+        connected_switch_mac = dpid_to_str(self.connection.dpid)
         
         # update mac to port mapping
         self.macToPort[packet.src] = event.port
@@ -124,6 +131,15 @@ class JobAwareSwitch ():
 
                 network_classad = classad.ClassAd(network_classad)
                 owner = network_classad["Owner"]
+                # at this point, assume each owner belongs to some accounting group
+                group = network_classad["AcctGroup"]
+                # if the packet request is from core switch, handle it differently
+                if connected_switch_mac == core_switch_mac:
+                    handle_packet_for_core_switch(packet, owner, group)
+                    return
+
+                # continue handle packets from openvswitch
+
                 # query htcondor config files to get the list of blocked users
                 # if the owner is in the list, drop the packets from this user.
 
@@ -281,6 +297,22 @@ class JobAwareSwitch ():
                 msg.actions.append(of.ofp_action_output(port = port))
                 msg.buffer_id = event.ofp.buffer_id
                 self.connection.send(msg)
+
+    # handle the packet goes to core swicth, check the priority set for the
+    # corresponding accounting group the owner belongs to and insert openflow rule
+    # to different port that has different rate limiting
+    # TODO
+    def handle_packet_for_core_switch(packet, owner, group):
+
+        
+        
+        
+        
+        
+        
+
+        
+        
 
 
 class job_aware_switch (object):
