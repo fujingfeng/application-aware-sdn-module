@@ -18,6 +18,7 @@ from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.util import str_to_bool
 from pox.lib.util import dpid_to_str
+from pox.lib.addresses import IPAddr
 import time
 import sys
 import socket
@@ -31,7 +32,7 @@ IDLE_TIMEOUT = 5
 
 # indicate the mac address  of the core switch
 # this should be the mac address of MLXe at HCC
-core_switch_mac = "00-1a-a0-09-fb-c3"
+core_switch_mac = "00-1a-a0-09-fb-c9"
 
 local_network_start = []
 local_network_end = []
@@ -76,20 +77,23 @@ class JobAwareSwitch ():
         # parsing the input packet
         packet = event.parsed
 
-        # parse the mac address of switch which initiate this connection
-        connected_switch_mac = dpid_to_str(self.connection.dpid)
-        
         # update mac to port mapping
         self.macToPort[packet.src] = event.port
 
         # drop LLDP packet
         # send command without actions
         if packet.type == packet.LLDP_TYPE:
-            # log.debug("dropping LLDP packets")
+            log.debug("dropping LLDP packets")
             msg = of.ofp_packet_out()
             msg.buffer_id = event.ofp.buffer_id
             msg.in_port = event.port
             self.connection.send(msg)
+
+        # parse the mac address of switch which initiate this connection
+        connected_switch_mac = dpid_to_str(self.connection.dpid)
+        if connected_switch_mac == core_switch_mac:
+            self.handle_packet_for_core_switch(event, packet)
+            return
 
         # get the IPv4 src and dst
         ipv4src = None
@@ -106,7 +110,7 @@ class JobAwareSwitch ():
             PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             
-            # log.debug("Connecting %s.%i for network classad for IP %s", HOST, PORT, str(ipv4src))
+            log.debug("Connecting %s.%i for network classad for IP %s", HOST, PORT, str(ipv4src))
             try:
                 sock.connect((HOST, PORT))
                 sock.sendall("REQUEST" + "\n" + str(ipv4src))
@@ -131,14 +135,6 @@ class JobAwareSwitch ():
 
                 network_classad = classad.ClassAd(network_classad)
                 owner = network_classad["Owner"]
-                # at this point, assume each owner belongs to some accounting group
-                group = network_classad["AcctGroup"]
-                # if the packet request is from core switch, handle it differently
-                if connected_switch_mac == core_switch_mac:
-                    handle_packet_for_core_switch(packet, owner, group)
-                    return
-
-                # continue handle packets from openvswitch
 
                 # query htcondor config files to get the list of blocked users
                 # if the owner is in the list, drop the packets from this user.
@@ -263,7 +259,7 @@ class JobAwareSwitch ():
         if packet.dst not in self.macToPort:
             # does not know out port
             # flood the packet
-            # log.debug("Port for %s unkown -- flooding", packet.dst)
+            log.debug("Port for %s unkown -- flooding", packet.dst)
             msg = of.ofp_packet_out()
             msg.actions.append(of.ofp_action_output(port = of.OFPP_FLOOD))
             msg.buffer_id = event.ofp.buffer_id
@@ -274,8 +270,8 @@ class JobAwareSwitch ():
             # check whether the packet's destination is the same port it come from
             port = self.macToPort[packet.dst]
             if port == event.port:
-                # log.warning("Same port for packet from %s -> %s on %s.%s. Drop."
-                #    % (packet.src, packet.dst, dpid_to_str(event.dpid), port))
+                log.warning("Same port for packet from %s -> %s on %s.%s. Drop."
+                    % (packet.src, packet.dst, dpid_to_str(event.dpid), port))
                 # install openflow rule to drop similar packets for a while
                 msg = of.ofp_flow_mod()
                 msg.match = of.ofp_match.from_packet(packet)
@@ -286,8 +282,8 @@ class JobAwareSwitch ():
             else:
                 # we know which port this packet should go
                 # just send out a of_packet_out message
-                # log.debug("packet from %s.%i -> %s.%i", packet.src, event.port, packet.dst, port)
-                # log.debug("installing openflow rule for this match")
+                log.debug("packet from %s.%i -> %s.%i", packet.src, event.port, packet.dst, port)
+                log.debug("installing openflow rule for this match")
                 msg = of.ofp_flow_mod()
                 msg.priority = 10
                 msg.match.dl_src = packet.src
@@ -302,18 +298,106 @@ class JobAwareSwitch ():
     # corresponding accounting group the owner belongs to and insert openflow rule
     # to different port that has different rate limiting
     # TODO
-    def handle_packet_for_core_switch(packet, owner, group):
+    def handle_packet_for_core_switch(self, event, packet):
+        
+        # get the IPv4 src and dst
+        ipv4src = None
+        ipv4dst = None
+        ipv4pkt = packet.find('ipv4')
+        if ipv4pkt is not None:
+            ipv4src = ipv4pkt.srcip
+            ipv4dst = ipv4pkt.dstip
 
-        
-        
-        
-        
-        
-        
+        # connect to htcondor module to ask for the network classad
+        # corresponding to this source ipv4 address
+        if ipv4src is not None:
+            HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
+            PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            
+            log.debug("Connecting %s.%i for network classad for IP %s", HOST, PORT, str(ipv4src))
+            try:
+                sock.connect((HOST, PORT))
+                sock.sendall("REQUEST" + "\n" + str(ipv4src))
+                # receive response from the server
+                received = sock.recv(1024).strip()
+            finally:
+                sock.close()
 
-        
-        
+            # check whether network classad is found at htcondor module
+            lines = received.split("\n")
+            if lines[0] == "FOUND":
+                
+                log.debug("Network classad for IP %s is found.", str(ipv4src))
 
+                # parse the network classad string into classad format
+                # debug to print out received classad string
+                log.debug("Received classad string is:")
+                network_classad = str()
+                for line in lines[1:]:
+                    print line
+                    network_classad = network_classad + line
+
+                network_classad = classad.ClassAd(network_classad)
+                owner = network_classad["Owner"]
+                tcppkt = packet.find('tcp')
+                tcpdstp = 0
+                if tcppkt is not None:
+                    tcpdstp = tcppkt.dstport
+                # hard coded user "zzhang" for test purpose
+                if owner == "zzhang" and tcpdstp == 80:
+                    # install flow rule with no action (ie dorp) for TCP port 80 and user "zzhang"
+                    msg = of.ofp_flow_mod()
+                    msg.priority = 12
+                    msg.match.dl_type = 0x800 # important and needed, otherwise not working (not sure why)
+                    msg.match.nw_src = ipv4src
+                    msg.match.tp_dst = 80 # match TCP dest port 80
+                    msg.match.hard_timeout = HARD_TIMEOUT
+                    msg.match.idle_timeout = IDLE_TIMEOUT
+                    msg.buffer_id = event.ofp.buffer_id
+                    self.connection.send(msg)
+                    log.debug("installed flow to drop http traffic from user zzhang")
+                    return
+            elif lines[0] == "NOFOUND":
+                pass
+                
+        if packet.dst not in self.macToPort:
+            # does not know out port
+            # flood the packet
+            log.debug("Port for %s unkown -- flooding", packet.dst)
+            msg = of.ofp_packet_out()
+            msg.actions.append(of.ofp_action_output(port = of.OFPP_FLOOD))
+            msg.buffer_id = event.ofp.buffer_id
+            msg.in_port = event.port
+            self.connection.send(msg)
+
+        else:
+            # check whether the packet's destination is the same port it come from
+            port = self.macToPort[packet.dst]
+            if port == event.port:
+                log.warning("Same port for packet from %s -> %s on %s.%s. Drop."
+                    % (packet.src, packet.dst, dpid_to_str(event.dpid), port))
+                # install openflow rule to drop similar packets for a while
+                msg = of.ofp_flow_mod()
+                msg.match = of.ofp_match.from_packet(packet)
+                msg.idle_timeout = IDLE_TIMEOUT
+                msg.hard_timeout = HARD_TIMEOUT
+                msg.buffer_id = event.ofp.buffer_id
+                self.connection.send(msg)
+            else:
+                # we know which port this packet should go
+                # just send out a of_packet_out message
+                log.debug("packet from %s.%i -> %s.%i", packet.src, event.port, packet.dst, port)
+                log.debug("installing openflow rule for this match")
+                msg = of.ofp_flow_mod()
+                msg.priority = 10
+                msg.match.dl_src = packet.src
+                msg.match.dl_dst = packet.dst
+                msg.idle_timeout = IDLE_TIMEOUT
+                msg.hard_timeout = HARD_TIMEOUT
+                msg.actions.append(of.ofp_action_output(port = port))
+                msg.buffer_id = event.ofp.buffer_id
+                self.connection.send(msg)
 
 class job_aware_switch (object):
     """
