@@ -96,44 +96,21 @@ class JobAwareSwitch ():
             return
 
         # get the IPv4 src and dst
-        ipv4src = None
-        ipv4dst = None
-        ipv4pkt = packet.find('ipv4')
-        if ipv4pkt is not None:
-            ipv4src = ipv4pkt.srcip
-            ipv4dst = ipv4pkt.dstip
+        ipv4addr = self.get_ip_addr(packet)
+        ipv4src = ipv4addr[0]
+        ipv4dst = ipv4addr[1]
 
-        # connect to htcondor module to ask for the network classad
-        # corresponding to this source ipv4 address
+
         if ipv4src is not None:
-            HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
-            PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            
-            log.debug("Connecting %s.%i for network classad for IP %s", HOST, PORT, str(ipv4src))
-            try:
-                sock.connect((HOST, PORT))
-                sock.sendall("REQUEST" + "\n" + str(ipv4src))
-                # receive response from the server
-                received = sock.recv(1024).strip()
-            finally:
-                sock.close()
+            received = self.request_network_classad(ipv4src)
 
             # check whether network classad is found at htcondor module
             lines = received.split("\n")
             if lines[0] == "FOUND":
                 
                 log.debug("Network classad for IP %s is found.", str(ipv4src))
-
-                # parse the network classad string into classad format
-                # debug to print out received classad string
-                log.debug("Received classad string is:")
-                network_classad = str()
-                for line in lines[1:]:
-                    print line
-                    network_classad = network_classad + line
-
-                network_classad = classad.ClassAd(network_classad)
+                network_classad = self.str_to_classad(lines)
+                
                 owner = network_classad["Owner"]
 
                 # query htcondor config files to get the list of blocked users
@@ -169,25 +146,18 @@ class JobAwareSwitch ():
                     # case 1
                     if owner in blocked_users:
                         if ipv4dst is not None:
-                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            try:
-                                sock.connect((HOST, PORT))
-                                sock.sendall("REQUEST" + "\n" + str(ipv4dst))
-                                received = sock.recv(1024).strip()
-                            finally:
-                                sock.close()
+                            received = self.request_network_classad(ipv4dst)
+                            
                             lines = received.split("\n")
                             if lines[0] == "FOUND":
                                 log.debug("Network classad for IP %s is found.", str(ipv4dst))
-                                network_classad = str()
-                                for line in lines[1:]:
-                                    network_classad = network_classad + line
-                                network_classad = classad.ClassAd(network_classad)
+                                network_classad = self.str_to_classad(lines)
                                 owner_dst = network_classad["Owner"]
 
                                 if owner != owner_dst:
                                     # drop
-                                    log.debug("HTCondor job from user %s is trying to communicate with job from user %s. Drop packet.", owner, owner_dst)
+                                    log.debug("HTCondor job from user %s is trying to communicate with \
+                                        job from user %s. Drop packet.", owner, owner_dst)
                                     # installing openflow rule to drop similar packets for a while
                                     msg = of.ofp_flow_mod()
                                     msg.priority = 12
@@ -206,7 +176,8 @@ class JobAwareSwitch ():
                                 white_list_ip = white_list_ip.split(',')
                                 if str(ipv4dst) not in white_list_ip:
                                     # drop
-                                    log.debug("HTCondor job from user %s that is blocked to communicate with outside network tries to do that. Drop", owner)
+                                    log.debug("HTCondor job from user %s that is blocked to communicate with \
+                                        outside network tries to do that. Drop", owner)
                                     log.debug("Destination IP address is %s", str(ipv4dst))
                                     msg = of.ofp_flow_mod()
                                     msg.priority = 12
@@ -221,25 +192,17 @@ class JobAwareSwitch ():
                     # case 2
                     else:
                         if ipv4dst is not None:
-                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            try:
-                                sock.connect((HOST, PORT))
-                                sock.sendall("REQUEST" + "\n" + str(ipv4dst))
-                                received = sock.recv(1024).strip()
-                            finally:
-                                sock.close()
+                            received = self.request_network_classad(ipv4dst)
                             lines = received.split("\n")
                             if lines[0] == "FOUND":
                                 log.debug("Network classad for IP %s is found.", str(ipv4dst))
-                                network_classad = str()
-                                for line in lines[1:]:
-                                    network_classad = network_classad + line
-                                network_classad = classad.ClassAd(network_classad)
+                                network_classad = self.str_to_classad(lines)
                                 owner_dst = network_classad["Owner"]
 
                                 if owner != owner_dst:
                                     # drop
-                                    log.debug("HTCondor job from user %s tries to communicate with job from user %s. Drop packet.", owner, owner_dst)
+                                    log.debug("HTCondor job from user %s tries to communicate with job from \
+                                        user %s. Drop packet.", owner, owner_dst)
                                     msg = of.ofp_flow_mod()
                                     msg.priority = 12
                                     msg.match.nw_src = ipv4src
@@ -256,43 +219,7 @@ class JobAwareSwitch ():
                 # proceed as normal packet using l2 switch rules
                 pass
 
-        if packet.dst not in self.macToPort:
-            # does not know out port
-            # flood the packet
-            log.debug("Port for %s unkown -- flooding", packet.dst)
-            msg = of.ofp_packet_out()
-            msg.actions.append(of.ofp_action_output(port = of.OFPP_FLOOD))
-            msg.buffer_id = event.ofp.buffer_id
-            msg.in_port = event.port
-            self.connection.send(msg)
-
-        else:
-            # check whether the packet's destination is the same port it come from
-            port = self.macToPort[packet.dst]
-            if port == event.port:
-                log.warning("Same port for packet from %s -> %s on %s.%s. Drop."
-                    % (packet.src, packet.dst, dpid_to_str(event.dpid), port))
-                # install openflow rule to drop similar packets for a while
-                msg = of.ofp_flow_mod()
-                msg.match = of.ofp_match.from_packet(packet)
-                msg.idle_timeout = IDLE_TIMEOUT
-                msg.hard_timeout = HARD_TIMEOUT
-                msg.buffer_id = event.ofp.buffer_id
-                self.connection.send(msg)
-            else:
-                # we know which port this packet should go
-                # just send out a of_packet_out message
-                log.debug("packet from %s.%i -> %s.%i", packet.src, event.port, packet.dst, port)
-                log.debug("installing openflow rule for this match")
-                msg = of.ofp_flow_mod()
-                msg.priority = 10
-                msg.match.dl_src = packet.src
-                msg.match.dl_dst = packet.dst
-                msg.idle_timeout = IDLE_TIMEOUT
-                msg.hard_timeout = HARD_TIMEOUT
-                msg.actions.append(of.ofp_action_output(port = port))
-                msg.buffer_id = event.ofp.buffer_id
-                self.connection.send(msg)
+        self.l2_learning(event, packet)
 
     # handle the packet goes to core swicth, check the priority set for the
     # corresponding accounting group the owner belongs to and insert openflow rule
@@ -301,44 +228,20 @@ class JobAwareSwitch ():
     def handle_packet_for_core_switch(self, event, packet):
         
         # get the IPv4 src and dst
-        ipv4src = None
-        ipv4dst = None
-        ipv4pkt = packet.find('ipv4')
-        if ipv4pkt is not None:
-            ipv4src = ipv4pkt.srcip
-            ipv4dst = ipv4pkt.dstip
+        ipv4addr = self.get_ip_addr(packet)
+        ipv4src = ipv4addr[0]
+        ipv4dst = ipv4addr[1]
 
-        # connect to htcondor module to ask for the network classad
-        # corresponding to this source ipv4 address
         if ipv4src is not None:
-            HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
-            PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            received = self.request_network_classad(ipv4src)
             
-            log.debug("Connecting %s.%i for network classad for IP %s", HOST, PORT, str(ipv4src))
-            try:
-                sock.connect((HOST, PORT))
-                sock.sendall("REQUEST" + "\n" + str(ipv4src))
-                # receive response from the server
-                received = sock.recv(1024).strip()
-            finally:
-                sock.close()
-
             # check whether network classad is found at htcondor module
             lines = received.split("\n")
             if lines[0] == "FOUND":
                 
                 log.debug("Network classad for IP %s is found.", str(ipv4src))
-
-                # parse the network classad string into classad format
-                # debug to print out received classad string
-                log.debug("Received classad string is:")
-                network_classad = str()
-                for line in lines[1:]:
-                    print line
-                    network_classad = network_classad + line
-
-                network_classad = classad.ClassAd(network_classad)
+                network_classad = self.str_to_classad(lines)
+                
                 owner = network_classad["Owner"]
                 tcppkt = packet.find('tcp')
                 tcpdstp = 0
@@ -360,7 +263,20 @@ class JobAwareSwitch ():
                     return
             elif lines[0] == "NOFOUND":
                 pass
+            
+        self.l2_learning(event, packet)
                 
+    def get_ip_addr(self, packet):
+        ipv4src = None
+        ipv4dst = None
+        ipv4pkt = packet.find('ipv4')
+        if ipv4pkt is not None:
+            ipv4src = ipv4pkt.srcip
+            ipv4dst = ipv4pkt.dstip
+        ipv4addr = (ipv4src, ipv4dst);
+        return ipv4addr
+        
+    def l2_learning(self, event, packet):
         if packet.dst not in self.macToPort:
             # does not know out port
             # flood the packet
@@ -398,6 +314,39 @@ class JobAwareSwitch ():
                 msg.actions.append(of.ofp_action_output(port = port))
                 msg.buffer_id = event.ofp.buffer_id
                 self.connection.send(msg)
+
+    def request_network_classad(self, ipv4addr):
+        """
+        connect to htcondor module to ask for the network classad
+        corresponding to the source ipv4 address
+        """
+        HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
+        PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            
+        log.debug("Connecting %s.%i for network classad for IP %s", HOST, PORT, str(ipv4addr))
+        try:
+            sock.connect((HOST, PORT))
+            sock.sendall("REQUEST" + "\n" + str(ipv4addr))
+            # receive response from the server
+            received = sock.recv(1024).strip()
+        finally:
+            sock.close()
+        return received
+    
+    def str_to_classad(self, lines):
+        """
+        parse the network classad string into classad format
+        debug to print out received classad string
+        """
+        log.debug("Received classad string is:")
+        network_classad = str()
+        for line in lines[1:]:
+            print line
+            network_classad = network_classad + line
+
+        network_classad = classad.ClassAd(network_classad)
+        return network_classad
 
 class job_aware_switch (object):
     """
