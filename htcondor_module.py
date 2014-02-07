@@ -36,22 +36,23 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         # 2. pox controller component ask for network classad for specific IP
         # they are represented as "SEND" and "REQUEST" respectively
         
-        data = self.request.recv(16384).strip()
+        #data = self.request.recv(16384).strip()
+        data = self.recv_timeout(0.02)
         cur_thread = threading.current_thread()
         lines = data.split("\n")
 
         #serverlog.debug("Message type is: %s", lines[0])
 
         if (lines[0] == "SEND"):
+            serverlog.debug("job classad string is: %s", lines[1])
+            serverlog.debug("machine classad string is: %s", lines[2])
             job_ad = classad.ClassAd(lines[1])
             machine_ad = classad.ClassAd(lines[2])
             # parse out the IP address of internal eth device and the job owner
             ip_src = machine_ad.eval("LarkInnerAddressIPv4")
             job_owner = job_ad.eval("Owner")
-            job_group = job_ad.eval("AcctGroup")
             serverlog.debug("IP address of internal ethernet device is: %s", ip_src)
             serverlog.debug("The owner of submitted job is: %s", job_owner)
-            serverlog.debug("The owner of submitted job belongs to accounting group %s", job_group);
 
             self.request.close()
 
@@ -59,7 +60,6 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
             # insert all the network policy related classad attr to network classad
             network_classad["Owner"] = job_owner
             network_classad["LarkInnerAddressIPv4"] = ip_src
-            network_classad["AcctGroup"] = job_group
         
             threadLock.acquire()
             classadDict[ip_src] = network_classad.__str__()
@@ -92,6 +92,32 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         else:
             serverlog.debug("Unknown message type, ignoring...")
             self.request.close()
+
+    def recv_timeout(self, timeout):
+        # make socket non-blocking
+        self.request.setblocking(0)
+        total_data = []
+        recv_data = ''
+        start_time = time.time()
+        while 1:
+            # if receives something then break after timeout
+            if total_data and time.time()-start_time > timeout:
+                break
+            # if nothing received then wait double the timeout
+            elif time.time()-start_time > timeout*2:
+                break
+            # actual receive something
+            try:
+                recv_data = self.request.recv(16384)
+                if recv_data:
+                    recv_data.append(data)
+                    start_time = time.time()
+                else:
+                    time.sleep(0.01)
+            except:
+                pass
+
+        return ''.join(recv_data)
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     # Ctrl-C will cleanly kill all spawned threads
