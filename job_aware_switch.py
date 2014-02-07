@@ -32,7 +32,7 @@ IDLE_TIMEOUT = 5
 
 # indicate the mac address  of the core switch
 # this should be the mac address of MLXe at HCC
-core_switch_mac = "00-1a-a0-09-fb-c9"
+core_switch_mac = "00-1e-68-04-1c-20"
 
 local_network_start = []
 local_network_end = []
@@ -91,6 +91,7 @@ class JobAwareSwitch ():
 
         # parse the mac address of switch which initiate this connection
         connected_switch_mac = dpid_to_str(self.connection.dpid)
+        log.debug("The detected mac address is %s", connected_switch_mac)
         if connected_switch_mac == core_switch_mac:
             self.handle_packet_for_core_switch(event, packet)
             return
@@ -108,7 +109,7 @@ class JobAwareSwitch ():
             lines = received.split("\n")
             if lines[0] == "FOUND":
                 
-                log.debug("Network classad for IP %s is found.", str(ipv4src))
+                log.info("Network classad for IP %s is found.", str(ipv4src))
                 network_classad = self.str_to_classad(lines)
                 
                 owner = network_classad["Owner"]
@@ -120,9 +121,9 @@ class JobAwareSwitch ():
                 blocked_users = blocked_users.split(',')
                 if owner in blocked_users:
                     # drop
-                    log.debug("Packet is from htcondor job whose owner is in the blocked user list. Drop.")
+                    log.warning("Packet is from htcondor job whose owner is in the blocked user list. Drop.")
                     # installing openflow rule
-                    log.debug("Installing openflow rule to switch to continue dropping similar packets for a while.")
+                    log.warning("Installing openflow rule to switch to continue dropping similar packets for a while.")
                     msg = of.ofp_flow_mod()
                     msg.priority = 12
                     msg.match.nw_src = ipv4src
@@ -150,13 +151,13 @@ class JobAwareSwitch ():
                             
                             lines = received.split("\n")
                             if lines[0] == "FOUND":
-                                log.debug("Network classad for IP %s is found.", str(ipv4dst))
+                                log.info("Network classad for IP %s is found.", str(ipv4dst))
                                 network_classad = self.str_to_classad(lines)
                                 owner_dst = network_classad["Owner"]
 
                                 if owner != owner_dst:
                                     # drop
-                                    log.debug("HTCondor job from user %s is trying to communicate with \
+                                    log.warning("HTCondor job from user %s is trying to communicate with \
                                         job from user %s. Drop packet.", owner, owner_dst)
                                     # installing openflow rule to drop similar packets for a while
                                     msg = of.ofp_flow_mod()
@@ -176,9 +177,9 @@ class JobAwareSwitch ():
                                 white_list_ip = white_list_ip.split(',')
                                 if str(ipv4dst) not in white_list_ip:
                                     # drop
-                                    log.debug("HTCondor job from user %s that is blocked to communicate with \
+                                    log.warning("HTCondor job from user %s that is blocked to communicate with \
                                         outside network tries to do that. Drop", owner)
-                                    log.debug("Destination IP address is %s", str(ipv4dst))
+                                    log.warning("Destination IP address is %s", str(ipv4dst))
                                     msg = of.ofp_flow_mod()
                                     msg.priority = 12
                                     msg.match.nw_src = ipv4src
@@ -195,13 +196,13 @@ class JobAwareSwitch ():
                             received = self.request_network_classad(ipv4dst)
                             lines = received.split("\n")
                             if lines[0] == "FOUND":
-                                log.debug("Network classad for IP %s is found.", str(ipv4dst))
+                                log.info("Network classad for IP %s is found.", str(ipv4dst))
                                 network_classad = self.str_to_classad(lines)
                                 owner_dst = network_classad["Owner"]
 
                                 if owner != owner_dst:
                                     # drop
-                                    log.debug("HTCondor job from user %s tries to communicate with job from \
+                                    log.warning("HTCondor job from user %s tries to communicate with job from \
                                         user %s. Drop packet.", owner, owner_dst)
                                     msg = of.ofp_flow_mod()
                                     msg.priority = 12
@@ -226,6 +227,7 @@ class JobAwareSwitch ():
     # to different port that has different rate limiting
     # TODO
     def handle_packet_for_core_switch(self, event, packet):
+        log.debug("Handle the core switch that connects to WAN.")
         
         # get the IPv4 src and dst
         ipv4addr = self.get_ip_addr(packet)
@@ -239,7 +241,7 @@ class JobAwareSwitch ():
             lines = received.split("\n")
             if lines[0] == "FOUND":
                 
-                log.debug("Network classad for IP %s is found.", str(ipv4src))
+                log.info("Network classad for IP %s is found.", str(ipv4src))
                 network_classad = self.str_to_classad(lines)
                 
                 owner = network_classad["Owner"]
@@ -247,6 +249,7 @@ class JobAwareSwitch ():
                 tcpdstp = 0
                 if tcppkt is not None:
                     tcpdstp = tcppkt.dstport
+                log.debug("The destination tcp port is %s.", tcpdstp)
                 # hard coded user "zzhang" for test purpose
                 if owner == "zzhang" and tcpdstp == 80:
                     # install flow rule with no action (ie dorp) for TCP port 80 and user "zzhang"
@@ -259,7 +262,7 @@ class JobAwareSwitch ():
                     msg.match.idle_timeout = IDLE_TIMEOUT
                     msg.buffer_id = event.ofp.buffer_id
                     self.connection.send(msg)
-                    log.debug("installed flow to drop http traffic from user zzhang")
+                    log.warning("installed flow to drop http traffic from user zzhang")
                     return
             elif lines[0] == "NOFOUND":
                 pass
@@ -339,10 +342,10 @@ class JobAwareSwitch ():
         parse the network classad string into classad format
         debug to print out received classad string
         """
-        log.debug("Received classad string is:")
+        log.info("Received classad string is:")
         network_classad = str()
         for line in lines[1:]:
-            print line
+            log.info(line)
             network_classad = network_classad + line
 
         network_classad = classad.ClassAd(network_classad)
