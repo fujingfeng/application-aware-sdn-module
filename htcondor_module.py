@@ -37,7 +37,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         # they are represented as "SEND" and "REQUEST" respectively
         
         #data = self.request.recv(16384).strip()
-        data = self.recv_timeout(0.02)
+        data = self.recv_timeout(0.01)
         serverlog.debug("received data is %s", data)
         cur_thread = threading.current_thread()
         lines = data.split("\n")
@@ -125,7 +125,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                     start_time = time.time()
                 else:
                     log.debug("recv function didn't get any data, sleep for a while.")
-                    time.sleep(0.01)
+                    time.sleep(0.005)
             except:
                 pass
 

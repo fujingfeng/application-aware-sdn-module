@@ -27,7 +27,7 @@ import htcondor
 
 log = core.getLogger()
 
-HARD_TIMEOUT = 10
+HARD_TIMEOUT = 600
 IDLE_TIMEOUT = 5
 
 # indicate the mac address  of the core switch
@@ -250,20 +250,8 @@ class JobAwareSwitch ():
                 if tcppkt is not None:
                     tcpdstp = tcppkt.dstport
                 log.debug("The destination tcp port is %s.", tcpdstp)
-                # hard coded user "zzhang" for test purpose
-                #if owner == "zzhang" and tcpdstp == 80:
-                    # install flow rule with no action (ie dorp) for TCP port 80 and user "zzhang"
-                #    msg = of.ofp_flow_mod()
-                #    msg.priority = 12
-                #    msg.match.dl_type = 0x800 # important and needed, otherwise not working (not sure why)
-                #    msg.match.nw_src = ipv4src
-                #    msg.match.tp_dst = 80 # match TCP dest port 80
-                #    msg.match.hard_timeout = HARD_TIMEOUT
-                #    msg.match.idle_timeout = IDLE_TIMEOUT
-                #    msg.buffer_id = event.ofp.buffer_id
-                #    self.connection.send(msg)
-                #    log.warning("installed flow to drop http traffic from user zzhang")
-                #    return
+                log.info("The source mac is: %s", str(packet.src))
+                log.info("The destination mac is %s", str(packet.dst))
 
                 # Perform WAN bandwidth shaping at core switch via HTCondor group accounting
                 # Create queues for different accounting group and attach to the physical port 
@@ -276,6 +264,7 @@ class JobAwareSwitch ():
                 # is going to outside network; check the accouting group (if any) and direct it to
                 # the corresponding queue and install rules to OpenFlow controller
                 if ipv4dst is not None:
+                    log.info("outside IPv4 destination address is %s", str(ipv4dst))
                     received = self.request_network_classad(ipv4dst)
                     lines = received.split("\n")
                     if lines[0] != "FOUND":
@@ -293,14 +282,16 @@ class JobAwareSwitch ():
                             # assign flow to corresponding queue that going outside
                             if packet.dst in self.macToPort:
                                 port = self.macToPort[packet.dst]
+                                log.info("The port number for outgoing traffic is %i", port)
                                 if group == "CMS":
-                                    queue_id = 0
-                                elif group == "NonCMS":
                                     queue_id = 1
+                                elif group == "NonCMS":
+                                    queue_id = 2
 
                                 log.warning("Direct outgoing traffic for group %s to QoS queue %i", group, queue_id)
                                 msg = of.ofp_flow_mod()
                                 msg.priority = 12
+                                msg.match.dl_type = 0x800
                                 msg.match.nw_src = ipv4src
                                 msg.match.nw_dst = ipv4dst
                                 msg.idle_timeout = IDLE_TIMEOUT
