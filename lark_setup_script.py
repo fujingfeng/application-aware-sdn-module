@@ -26,7 +26,7 @@ machine_ad = sys.stdin.readline()
 # use "SEND" as message type to tell htcondor module
 # that this is the message from lark setup script which
 # sends the full job and machine ClassAds
-send_data = "SEND" + "\n" + job_ad + machine_ad
+send_data = "HTCONDOR" + "\n" + "SEND" + "\n" + job_ad + machine_ad
 
 
 # connect to the htcondor module and send out the classads

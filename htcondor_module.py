@@ -1,111 +1,206 @@
 #!/usr/bin/python
 
-#
-# This htcondor module receives job and machine classad as 
-# strings from lark setup callout script and parses these
-# received strings to job and machine classads. It looks for 
-# interesting classad attributes value and uses it for network 
-# scheduling.
-#
+###################################################################
+#  This htcondor module receives job and machine classad as       #
+#  strings from lark setup callout script and parses these        #
+#  received strings to job and machine classads. It looks for     #
+#  interesting classad attributes value and uses it for network   #
+#  scheduling.                                                    #
+###################################################################
 
 import sys
+import re
 import time
 import socket
 import threading
 import SocketServer
 import classad
 import htcondor
+from collections import namedtuple
 from pox.core import core
+import pox.openflow.libopenflow_01 as of
+from pox.lib.util import dpid_to_str
+from pox.lib.addresses import IPAddr
+from job_aware_switch import check_within_local_network
 
 log = core.getLogger()
+
 try:
     serverlog = log.getChild("server")
 except:
     serverlog = core.getLogger("htcondor_module.server")
 
-threadLock = threading.Lock()
+classad_thread_lock = threading.Lock()
+gridftp_thread_lock = threading.Lock()
 
-# use a dictionary to store all the network classads, internal IPv4 address
-# is used as the key
-classadDict = {}
+# use a dictionary to store all the network classads
+# internal IPv4 address is used as the key
+classad_dict = {}
+
+# use a dictionary to store all the GridFTP event info
+# IP + Port is used as the key
+gridftp_dict = {}
+AddressPort = namedtuple('AddressPort', ['ip','port'])
+GridftpTransferInfo = namedtuple('GridftpTransferInfo', ['username','filename','transfer_type'])
+
+# define the dpid for core switch which connect to WAN
+core_switch_mac = "00-1a-a0-09-fb-c9"
+core_switch_dpid = 0
+
+HARD_TIMEOUT = 600
+IDLE_TIMEOUT = 5    
 
 class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
+
     def handle(self):
-        # there are two possible kinds of request to handle
-        # 1. lark setup script sends full job and machine classad
-        # 2. pox controller component ask for network classad for specific IP
-        # they are represented as "SEND" and "REQUEST" respectively
+
+        # The received requests can be from different applications,
+        # currently HTCondor and GridFTP are supported. It is very likely
+        # the supported applications will be expanded in the future.
+        # For each application, a set of event types are supported.
         
-        #data = self.request.recv(16384).strip()
-        data = self.recv_timeout(0.01)
+        # TODO: need to implement a better function to receive the data
+        # if use standard recv, sometimes the full machine + job classad 
+        # sent from lark_setup_script could be truncated; if use recv_timeout,
+        # GridFTP event info could not be successfully delivered.
+        data = self.request.recv(16384).strip()
+        #data = self.recv_timeout(0.01)
+
         serverlog.debug("received data is %s", data)
         cur_thread = threading.current_thread()
         lines = data.split("\n")
 
-        serverlog.debug("Message type is: %s", lines[0])
+        # TODO: break processing for different applications into functions
+        if(lines[0] == "HTCONDOR"):
 
-        if (lines[0] == "SEND"):
-            serverlog.info("job classad string is: %s", lines[1])
-            serverlog.info("machine classad string is: %s", lines[2])
-            job_ad = classad.ClassAd(lines[1])
-            machine_ad = classad.ClassAd(lines[2])
-            # parse out the IP address of internal eth device and the job owner
-            ip_src = machine_ad.eval("LarkInnerAddressIPv4")
-            job_owner = job_ad.eval("Owner")
-            group = None
-            if "AcctGroup" in job_ad:
-                group = job_ad.eval("AcctGroup")
-                serverlog.info("The accounting group that the user belongs to is: %s", group)
-            serverlog.info("IP address of internal ethernet device is: %s", ip_src)
-            serverlog.info("The owner of submitted job is: %s", job_owner)
+            if (lines[1] == "SEND"):
 
-            self.request.close()
+                serverlog.info("job classad string is: %s", lines[2])
+                serverlog.info("machine classad string is: %s", lines[3])
+                job_ad = classad.ClassAd(lines[2])
+                machine_ad = classad.ClassAd(lines[3])
+                # parse out the IP address of internal eth device and the job owner
+                ip_src = machine_ad.eval("LarkInnerAddressIPv4")
+                job_owner = job_ad.eval("Owner")
+                group = None
+                if "AcctGroup" in job_ad:
+                    group = job_ad.eval("AcctGroup")
+                    serverlog.info("The accounting group that the user belongs to is: %s", group)
+                serverlog.info("IP address of internal ethernet device is: %s", ip_src)
+                serverlog.info("The owner of submitted job is: %s", job_owner)
 
-            network_classad = classad.ClassAd()
-            # insert all the network policy related classad attr to network classad
-            network_classad["Owner"] = job_owner
-            network_classad["LarkInnerAddressIPv4"] = ip_src
-            if group is not None:
-                network_classad["AcctGroup"] = group
+                network_classad = classad.ClassAd()
+                # insert all the network policy related classad attr to network classad
+                network_classad["Owner"] = job_owner
+                network_classad["LarkInnerAddressIPv4"] = ip_src
+                if group is not None:
+                    network_classad["AcctGroup"] = group
         
-            threadLock.acquire()
-            classadDict[ip_src] = network_classad.__str__()
-            threadLock.release()
-        elif (lines[0] == "REQUEST"):
-            network_classad = None
-            ip_src = lines[1]
-            threadLock.acquire()
-            # first check whether classadDict has the given key
-            if ip_src in classadDict:
-                network_classad = classadDict[ip_src]
-            threadLock.release()
-            if network_classad is not None:
-                serverlog.info("Network classad is %s", network_classad)
-                serverlog.info("Found network classad for IP %s, send it back.", ip_src)
-                self.request.sendall("FOUND" + network_classad)
+                classad_thread_lock.acquire()
+                classad_dict[ip_src] = network_classad.__str__()
+                classad_thread_lock.release()
+
+            elif (lines[1] == "REQUEST"):
+
+                network_classad = None
+                ip_src = lines[2]
+                classad_thread_lock.acquire()
+                # first check whether classad_dict has the given key
+                if ip_src in classad_dict:
+                    network_classad = classad_dict[ip_src]
+                classad_thread_lock.release()
+                if network_classad is not None:
+                    serverlog.info("Network classad is %s", network_classad)
+                    serverlog.info("Found network classad for IP %s, send it back.", ip_src)
+                    self.request.sendall("FOUND" + network_classad)
+                else:
+                    serverlog.debug("Could not find network classad for IP %s, send back no found.", ip_src)
+                    self.request.sendall("NOFOUND" + "\n")
+
+            elif (lines[1] == "CLEAN"):
+
+                ip_src = lines[1]
+                classad_thread_lock.acquire()
+                # check whether classad_dict has the given key and delete corresponding
+                # network classad if it is in the dictionary
+                log.info("Delete network classad in classad dictionary for IP address %s", ip_src)
+                if ip_src in classad_dict:
+                    del classad_dict[ip_src]
+                classad_thread_lock.release()
+
             else:
-                serverlog.debug("Could not find network classad for IP %s, send back no found.", ip_src)
-                self.request.sendall("NOFOUND" + "\n")
-            self.request.close()
-        elif (lines[0] == "CLEAN"):
-            ip_src = lines[1]
-            threadLock.acquire()
-            # check whether classadDict has the given key and delete corresponding
-            # network classad if it is in the dictionary
-            log.info("Delete network classad in classad dictionary for IP address %s", ip_src)
-            if ip_src in classadDict:
-                del classadDict[ip_src]
-            threadLock.release()
+
+                serverlog.debug("Unknown message type for HTCONDOR event, ignore.")
+
+        elif (lines[0] == "GRIDFTP"):
+
+            # check the dpid for core switch
+            global core_switch_dpid
+            if core_switch_dpid == 0:
+                for connection in core.openflow.connections:
+                    if(core_switch_mac == dpid_to_str(connection.dpid)):
+                        core_switch_dpid = connection.dpid
+                        break
+
+            if (lines[1] == "STARTUP"):
+
+                address_port = AddressPort(lines[2], lines[3])
+                gridftp_transfer_info = GridftpTransferInfo(lines[4], lines[5], lines[6])
+                gridftp_thread_lock.acquire()
+                gridftp_dict[address_port] = gridftp_transfer_info
+                gridftp_thread_lock.release()
+                self.install_rule_for_gridftp_traffic(core_switch_dpid, address_port, gridftp_transfer_info)
+
+            elif (lines[1] == "SHUTDOWN"):
+
+                address_port = AddressPort(lines[2], lines[3])
+                gridftp_transfer_info = GridftpTransferInfo(lines[4], lines[5], lines[6])
+                gridftp_thread_lock.acquire()
+                if address_port in gridftp_dict:
+                    del gridftp_dict[address_port]
+                gridftp_thread_lock.release()
+                self.delete_rule_for_gridftp_traffic(core_switch_dpid, address_port, gridftp_transfer_info)
+
+            elif (lines[1] == "REQUEST"):
+
+                address_port = AddressPort(lines[2], lines[3])
+                gridftp_transfer_info = None
+
+                gridftp_thread_lock.acquire()
+                if address_port in gridftp_dict:
+                    gridftp_transfer_info = gridftp_dict[address_port]
+                gridftp_thread_lock.release()
+
+                if gridftp_transfer_info is not None:
+                    serverlog.info("GridFTP file transfer username and filename are: %s, %s", \
+                        gridftp_transfer_info.username, gridftp_transfer_info.filename)
+                    serverlog.info("GridFTP file transfer type is %s", gridftp_transfer_info.transfer_type)
+                    serverlog.info("Send back to job_aware_switch")
+                    self.request.sendall("FOUND" + "\n" + gridftp_transfer_info.username + "\n" \
+                        + gridftp_transfer_info.filename)
+                else:
+                    serverlog.debug("Could not find GridFTP transfer for IP + Port combination: \
+                        %s, %s", address_port.ip, address_port.port)
+                    self.request.sendall("NOFOUND" + "\n")
+
+            else:
+
+                serverlog.debug("Unknown GridFTP event type, ignore.")
+
         else:
-            serverlog.debug("Unknown message type, ignoring...")
-            self.request.close()
+            
+            serverlog.debug("Unkonwn application type %s, ignore.", lines[0])
+
+        self.request.close()
 
     def recv_timeout(self, timeout):
+
         # make socket non-blocking
         self.request.setblocking(0)
         total_data = []
         recv_data = ''
         start_time = time.time()
+
         while 1:
             # if receives something then break after timeout
             if total_data and time.time()-start_time > timeout:
@@ -131,7 +226,83 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
 
         return ''.join(total_data)
 
+    def install_rule_for_gridftp_traffic(self, dpid, address_port, gridftp_transfer_info):
+
+        # check whether the gridftp client is within LAN or in WAN
+        # 1. if client is within the same LAN with server, don't install
+        #    specific rule for this file transfer, because bottleneck is
+        #    usually at WAN part.
+        # 2. if client is in WAN, prioritize the traffic stream based on
+        #    the username and filename information.
+
+        address = address_port.ip
+        # TODO: this function needs to be rewritten
+        #if (!check_within_local_network(ip)):
+        if(True):
+            # figure out whether this gridftp transfer is upload or download
+            # 1. If this is a gridftp upload, we don't have a lot of control
+            #    over the incoming bandwidth, don't install specific openflow rule
+            # 2. If this is a gridftp download, we can direct different file 
+            #    transfer streams to different qos queues with different priorities
+            if gridftp_transfer_info.transfer_type == "download":
+                # for test purpose, now use two differnet priorities
+                # filename like /test1/* > file like /test2/*
+                # direct traffic to queue 1 and queue2 accordingly
+                if gridftp_transfer_info.filename.startswith("/test1/"):
+                    msg = of.ofp_flow_mod()
+                    msg.priority = 12
+                    msg.match.dl_type = 0x800
+                    msg.match.nw_dst = IPAddr(address_port.ip)
+                    msg.match.tp_dst = address_port.port
+                    # hard code port and queue_id
+                    # TODO: how to make the selection of port and queue id more automated
+                    msg.actions.append(of.ofp_action_enqueue(port = 1, queue_id = 1))
+                    core.openflow.sendToDPID(dpid, msg)
+                elif gridftp_transfer_info.filename.startswith("/test2/"):
+                    msg = of.ofp_flow_mod()
+                    msg.priority = 12
+                    msg.match.dl_type = 0x800
+                    msg.match.nw_dst = IPAddr(address_port.ip)
+                    msg.match.tp_dst = address_port.port
+                    msg.actions.append(of.ofp_action_enqueue(port = 1, queue_id = 2))
+                    core.openflow.sendToDPID(dpid, msg)
+                
+            else:
+                pass
+
+        else:
+            pass
+
+
+    def delete_rule_for_gridftp_traffic(self, dpid, address_port, gridftp_transfer_info):
+        
+        address = address_port.ip
+        #if !(check_within_local_network(ip)):
+        if(True):
+            if gridftp_transfer_info.transfer_type == "download":
+                if gridftp_transfer_info.filename.startswith("/test1/"):
+                    msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
+                    msg.priority = 12
+                    msg.match.dl_type = 0x800
+                    msg.match.nw_dst = IPAddr(address_port.ip)
+                    msg.match.tp_dst = address_port.port
+                    #msg.actions.append(of.ofp_actions_enqueue(port=1, queue_id=1))
+                    core.openflow.sendToDPID(dpid, msg)
+                elif gridftp_transfer_info.filename.startswith("/test2/"):
+                    msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
+                    msg.priority = 12
+                    msg.match.dl_type = 0x800
+                    msg.match.nw_dst = IPAddr(address_port.ip)
+                    msg.match.tp_dst = address_port.port
+                    #msg.actions.append(of.ofp_actions_enqueue(port=1, queue_id=2))
+                    core.openflow.sendToDPID(dpid, msg)
+            else:
+                pass
+        else:
+            pass
+
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
+    
     # Ctrl-C will cleanly kill all spawned threads
     daemon_threads = True
     # faster rebinding
@@ -141,7 +312,8 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
 def launch():
-    #threadLock = threading.Lock()
+    
+    #classad_thread_lock = threading.Lock()
     # make HOST to be IPv4 address of the host where the pox controller is running
     HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
     PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
@@ -159,8 +331,3 @@ def launch():
     thread = threading.Thread(target=run)
     thread.daemon = True
     thread.start()
-
-
-
-
-

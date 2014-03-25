@@ -29,7 +29,7 @@ ip_src = machine_ad.eval("LarkInnerAddressIPv4")
 
 # use "CLEAN" as message type to tell htcondor module
 # that this is the message from lark cleanup script
-send_data = "CLEAN" + "\n" + ip_src
+send_data = "HTCONDOR" + "\n" + "CLEAN" + "\n" + ip_src
 
 # connect to the htcondor module and send out the info
 HOST = htcondor.param["HTCONDOR_MODULE_HOST"]

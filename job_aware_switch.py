@@ -39,6 +39,7 @@ local_network_end = []
 
 # calculated the range of IP address of local network
 def get_network_info():
+
     """ Returns the local network IP address and subnet mask """
     f = open('/proc/net/route', 'r')
     lines = f.readlines()
@@ -60,6 +61,7 @@ def get_network_info():
 
 # check whether the destination is within the local network range
 def check_within_local_network(dest):
+
     for i in range(4):
        if(dest[i] < local_network_start[i] or dest[i] > local_network_end[i]):
            return False
@@ -68,12 +70,14 @@ def check_within_local_network(dest):
 class JobAwareSwitch ():
     
     def __init__ (self, connection):
+
         # Switch we will be adding L2 learning switch capabilitites to
         self.connection = connection
         self.macToPort = {}
         connection.addListeners(self)
 
     def _handle_PacketIn (self, event):
+
         # parsing the input packet
         packet = event.parsed
 
@@ -101,8 +105,16 @@ class JobAwareSwitch ():
         ipv4src = ipv4addr[0]
         ipv4dst = ipv4addr[1]
 
+        # get the TCP src and dst port
+        tcppkt = packet.find('tcp')
+        tcpsrcp = None
+        tcpdstp = None
+        if tcppkt is not None:
+            tcpsrcp = tcppkt.srcport
+            tcpdstp = tcppkt.dstport
 
         if ipv4src is not None:
+
             received = self.request_network_classad(ipv4src)
 
             # check whether network classad is found at htcondor module
@@ -225,8 +237,8 @@ class JobAwareSwitch ():
     # handle the packet goes to core swicth, check the priority set for the
     # corresponding accounting group the owner belongs to and insert openflow rule
     # to different port that has different rate limiting
-    # TODO
     def handle_packet_for_core_switch(self, event, packet):
+
         log.debug("Handle the core switch that connects to WAN.")
         
         # get the IPv4 src and dst
@@ -307,6 +319,7 @@ class JobAwareSwitch ():
         self.l2_learning(event, packet)
                 
     def get_ip_addr(self, packet):
+
         ipv4src = None
         ipv4dst = None
         ipv4pkt = packet.find('ipv4')
@@ -317,6 +330,7 @@ class JobAwareSwitch ():
         return ipv4addr
         
     def l2_learning(self, event, packet):
+
         if packet.dst not in self.macToPort:
             # does not know out port
             # flood the packet
@@ -356,6 +370,7 @@ class JobAwareSwitch ():
                 self.connection.send(msg)
 
     def request_network_classad(self, ipv4addr):
+
         """
         connect to htcondor module to ask for the network classad
         corresponding to the source ipv4 address
@@ -367,14 +382,34 @@ class JobAwareSwitch ():
         log.debug("Connecting %s.%i for network classad for IP %s", HOST, PORT, str(ipv4addr))
         try:
             sock.connect((HOST, PORT))
-            sock.sendall("REQUEST" + "\n" + str(ipv4addr))
+            sock.sendall("HTCONDOR" + "\n" + "REQUEST" + "\n" + str(ipv4addr))
             # receive response from the server
+            received = sock.recv(1024).strip()
+        finally:
+            sock.close()
+        return received
+
+    def request_gridftp_info(self, ipv4addr, gridftp_port):
+        
+        """
+        connect to htcondor module to ask for the gridftp info
+        corresponding to the ipv4addr + port combination
+        """
+        HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
+        PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        log.debug("Connecting %s.%i for gridftp information for %s:%i", HOST, PORT, ipv4addr, gridftp_port)
+        try:
+            sock.connect((HOST, PORT))
+            sock.sendall("GRIDFTP" + "\n" + "REQUEST" + "\n" + str(ipv4addr) + "\n" + str(gridftp_port))
             received = sock.recv(1024).strip()
         finally:
             sock.close()
         return received
     
     def str_to_classad(self, lines):
+
         """
         parse the network classad string into classad format
         debug to print out received classad string
@@ -389,6 +424,7 @@ class JobAwareSwitch ():
         return network_classad
 
 class job_aware_switch (object):
+
     """
     Waits for OpenFlow switches to connect and makes them htcondor job-aware switches
     """
@@ -400,6 +436,7 @@ class job_aware_switch (object):
         JobAwareSwitch(event.connection)
 
 def launch ():
+
     """
     Starts an htcondor job-aware switch
     """
