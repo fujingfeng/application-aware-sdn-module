@@ -1,12 +1,28 @@
 #!/usr/bin/python
 
-###################################################################
-#  This htcondor module receives job and machine classad as       #
-#  strings from lark setup callout script and parses these        #
-#  received strings to job and machine classads. It looks for     #
-#  interesting classad attributes value and uses it for network   #
-#  scheduling.                                                    #
-###################################################################
+####################################################################
+#                                                                  #
+#  This module has been extended for supporting multiple possible  #
+#  cluster computing related softwares, such as HTCondor, GridFTP. #
+#  The movitation for this is to provide a general framework to    #  
+#  utilize the application level information to assist the network #
+#  layer in terms of network scheduling since all the applications #
+#  would have extensive network activites.                         #
+#                                                                  #
+#  For HTCondor, this module receives job and machine classad as   #
+#  strings from lark setup callout script and parses these         #
+#  received strings to job and machine classads. It looks for      #
+#  interesting classad attributes value and later application      #
+#  aware switch would uses it for network scheduling passively.    #
+#                                                                  #
+#  For GridFTP, the application level information such as the      #
+#  username and filename are sent to this module, this module      #
+#  would check the priority for each file transfer and proactively #
+#  install corresponding openflow rules to the underlying switches #
+#  in order to prioritize different GridFTP file transfers, e.g.   #
+#  direct them to different QoS queues with different bandwidth.   #
+#                                                                  #
+####################################################################
 
 import sys
 import re
@@ -48,7 +64,7 @@ core_switch_mac = "00-1a-a0-09-fb-c9"
 core_switch_dpid = 0
 
 HARD_TIMEOUT = 600
-IDLE_TIMEOUT = 5    
+IDLE_TIMEOUT = 5
 
 class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
 
@@ -143,6 +159,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                         break
 
             if (lines[1] == "STARTUP"):
+                serverlog.info("GRIDFTP STARTUP event occurs")
 
                 address_port = AddressPort(lines[2], lines[3])
                 gridftp_transfer_info = GridftpTransferInfo(lines[4], lines[5], lines[6])
@@ -151,7 +168,13 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 gridftp_thread_lock.release()
                 self.install_rule_for_gridftp_traffic(core_switch_dpid, address_port, gridftp_transfer_info)
 
+            elif (lines[1] == "UPDATE"):
+                #TODO: handle "UPDATE" event, although currently I think use IDLE_TIMEOUT is sufficient enough
+                serverlog.info("GRIDFTP UPDATE event occurs")
+                pass
+
             elif (lines[1] == "SHUTDOWN"):
+                serverlog.info("GRIDFTP SHUTDOWN event occurs")
 
                 address_port = AddressPort(lines[2], lines[3])
                 gridftp_transfer_info = GridftpTransferInfo(lines[4], lines[5], lines[6])
@@ -194,6 +217,14 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         self.request.close()
 
     def recv_timeout(self, timeout):
+        
+        """ 
+        A timeout-based receive function for socket in order to make sure 
+        that the data received by the server is completed instead of being
+        truncated possibly. This tries to solve the problem that the classad 
+        string is truncated when it is sent from lark callout script to this 
+        module.
+        """
 
         # make socket non-blocking
         self.request.setblocking(0)
@@ -227,6 +258,11 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         return ''.join(total_data)
 
     def install_rule_for_gridftp_traffic(self, dpid, address_port, gridftp_transfer_info):
+        
+        """
+        install corresponding openflow rule to switches for GridFTP transfers 
+        when GridFTP STARTUP event occurs.
+        """
 
         # check whether the gridftp client is within LAN or in WAN
         # 1. if client is within the same LAN with server, don't install
@@ -249,22 +285,39 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 # filename like /test1/* > file like /test2/*
                 # direct traffic to queue 1 and queue2 accordingly
                 if gridftp_transfer_info.filename.startswith("/test1/"):
+                    log.info("install rule for GridFTP file transfer in /test1/")
                     msg = of.ofp_flow_mod()
                     msg.priority = 12
                     msg.match.dl_type = 0x800
+                    msg.match.nw_proto = 6
                     msg.match.nw_dst = IPAddr(address_port.ip)
-                    msg.match.tp_dst = address_port.port
+                    msg.match.tp_dst = int(address_port.port)
+                    msg.idle_timeout = IDLE_TIMEOUT
                     # hard code port and queue_id
                     # TODO: how to make the selection of port and queue id more automated
                     msg.actions.append(of.ofp_action_enqueue(port = 1, queue_id = 1))
                     core.openflow.sendToDPID(dpid, msg)
                 elif gridftp_transfer_info.filename.startswith("/test2/"):
+                    log.info("install rule for GridFTP file transfer in /test2/")
                     msg = of.ofp_flow_mod()
                     msg.priority = 12
                     msg.match.dl_type = 0x800
+                    msg.match.nw_proto = 6
                     msg.match.nw_dst = IPAddr(address_port.ip)
-                    msg.match.tp_dst = address_port.port
+                    msg.match.tp_dst = int(address_port.port)
+                    msg.idle_timeout = IDLE_TIMEOUT
                     msg.actions.append(of.ofp_action_enqueue(port = 1, queue_id = 2))
+                    core.openflow.sendToDPID(dpid, msg)
+                elif gridftp_transfer_info.filename.startswith("/test3/"):
+                    log.info("install rule for GridFTP file transfer in /test3/")
+                    msg = of.ofp_flow_mod()
+                    msg.priority = 12
+                    msg.match.dl_type = 0x800
+                    msg.match.nw_proto = 6
+                    msg.match.nw_dst = IPAddr(address_port.ip)
+                    msg.match.tp_dst = int(address_port.port)
+                    msg.idle_timeout = IDLE_TIMEOUT
+                    msg.actions.append(of.ofp_action_enqueue(port = 1, queue_id = 3))
                     core.openflow.sendToDPID(dpid, msg)
                 
             else:
@@ -275,6 +328,11 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
 
 
     def delete_rule_for_gridftp_traffic(self, dpid, address_port, gridftp_transfer_info):
+
+        """
+        delete corresponding openflow rules on switches for GridFTP file transfer
+        when the GridFTP SHUTDOWN event occurs
+        """
         
         address = address_port.ip
         #if !(check_within_local_network(ip)):
@@ -284,17 +342,27 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                     msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
                     msg.priority = 12
                     msg.match.dl_type = 0x800
+                    msg.match.nw_proto = 6
                     msg.match.nw_dst = IPAddr(address_port.ip)
-                    msg.match.tp_dst = address_port.port
+                    msg.match.tp_dst = int(address_port.port)
                     #msg.actions.append(of.ofp_actions_enqueue(port=1, queue_id=1))
                     core.openflow.sendToDPID(dpid, msg)
                 elif gridftp_transfer_info.filename.startswith("/test2/"):
                     msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
                     msg.priority = 12
                     msg.match.dl_type = 0x800
+                    msg.match.nw_proto = 6
                     msg.match.nw_dst = IPAddr(address_port.ip)
-                    msg.match.tp_dst = address_port.port
+                    msg.match.tp_dst = int(address_port.port)
                     #msg.actions.append(of.ofp_actions_enqueue(port=1, queue_id=2))
+                    core.openflow.sendToDPID(dpid, msg)
+                elif gridftp_transfer_info.filename.startswith("/test3/"):
+                    msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
+                    msg.priority = 12
+                    msg.match.dl_type = 0x800
+                    msg.match.nw_proto = 6
+                    msg.match.nw_dst = IPAddr(address_port.ip)
+                    msg.match.tp_dst = int(address_port.port)
                     core.openflow.sendToDPID(dpid, msg)
             else:
                 pass

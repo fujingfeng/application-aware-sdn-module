@@ -1,12 +1,12 @@
 #!/usr/bin/python
 
 """
-An htcondor job-aware switch.
+An application level aware switch.
 
 It should perform basic switch functionality, which means that
 if there are no special policies are predefined, the network 
 traffic should be able to go through the switch like a regular 
-l2 switch. The difference between this job-aware switch and 
+l2 switch. The difference between this applicaiton-aware switch and 
 regular l2 switch is that when PacketIn event occurs, the handler 
 would ask for network classad of corresponding job that causes 
 this network flow before it assign actions on this flow. It 
