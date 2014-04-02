@@ -86,6 +86,14 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         cur_thread = threading.current_thread()
         lines = data.split("\n")
 
+        # check the dpid for core switch
+        global core_switch_dpid
+        if core_switch_dpid == 0:
+            for connection in core.openflow.connections:
+                if(core_switch_mac == dpid_to_str(connection.dpid)):
+                    core_switch_dpid = connection.dpid
+                    break
+
         # TODO: break processing for different applications into functions
         if(lines[0] == "HTCONDOR"):
 
@@ -149,14 +157,6 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 serverlog.debug("Unknown message type for HTCONDOR event, ignore.")
 
         elif (lines[0] == "GRIDFTP"):
-
-            # check the dpid for core switch
-            global core_switch_dpid
-            if core_switch_dpid == 0:
-                for connection in core.openflow.connections:
-                    if(core_switch_mac == dpid_to_str(connection.dpid)):
-                        core_switch_dpid = connection.dpid
-                        break
 
             if (lines[1] == "STARTUP"):
                 serverlog.info("GRIDFTP STARTUP event occurs")
