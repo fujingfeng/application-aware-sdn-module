@@ -38,6 +38,7 @@ import pox.openflow.libopenflow_01 as of
 from pox.lib.util import dpid_to_str
 from pox.lib.addresses import IPAddr
 from job_aware_switch import check_within_local_network
+import sdn_controller_config as controller_config
 
 log = core.getLogger()
 
@@ -63,8 +64,19 @@ GridftpTransferInfo = namedtuple('GridftpTransferInfo', ['username','filename','
 core_switch_mac = "00-1a-a0-09-fb-c9"
 core_switch_dpid = 0
 
+# hard and idle timeout config
 HARD_TIMEOUT = 600
 IDLE_TIMEOUT = 5
+
+# application-aware controller configuration related variables
+policy_mode = ''
+projects_list = []
+gridftp_directory_priority = []
+gridftp_qos_queues_num = 0
+gridftp_qos_queues_start_id = 0
+general_qos_queues_num = 0
+general_qos_queues_start_id = 0
+config_filename = '/home/bockelman/zzhang/pox/ext/sdn_controller.cfg'
 
 class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
 
@@ -79,6 +91,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         # if use standard recv, sometimes the full machine + job classad 
         # sent from lark_setup_script could be truncated; if use recv_timeout,
         # GridFTP event info could not be successfully delivered.
+
         data = self.request.recv(16384).strip()
         #data = self.recv_timeout(0.01)
 
@@ -124,6 +137,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 classad_dict[ip_src] = network_classad.__str__()
                 classad_thread_lock.release()
 
+
             elif (lines[1] == "REQUEST"):
 
                 network_classad = None
@@ -147,7 +161,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 classad_thread_lock.acquire()
                 # check whether classad_dict has the given key and delete corresponding
                 # network classad if it is in the dictionary
-                log.info("Delete network classad in classad dictionary for IP address %s", ip_src)
+                serverlog.info("Delete network classad in classad dictionary for IP address %s", ip_src)
                 if ip_src in classad_dict:
                     del classad_dict[ip_src]
                 classad_thread_lock.release()
@@ -166,7 +180,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 gridftp_thread_lock.acquire()
                 gridftp_dict[address_port] = gridftp_transfer_info
                 gridftp_thread_lock.release()
-                self.install_rule_for_gridftp_traffic(core_switch_dpid, address_port, gridftp_transfer_info)
+                self.process_rule_for_gridftp_traffic(core_switch_dpid, address_port, gridftp_transfer_info, lines[1])
 
             elif (lines[1] == "UPDATE"):
                 #TODO: handle "UPDATE" event, although currently I think use IDLE_TIMEOUT is sufficient enough
@@ -182,7 +196,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 if address_port in gridftp_dict:
                     del gridftp_dict[address_port]
                 gridftp_thread_lock.release()
-                self.delete_rule_for_gridftp_traffic(core_switch_dpid, address_port, gridftp_transfer_info)
+                self.process_rule_for_gridftp_traffic(core_switch_dpid, address_port, gridftp_transfer_info, lines[1])
 
             elif (lines[1] == "REQUEST"):
 
@@ -235,29 +249,29 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         while 1:
             # if receives something then break after timeout
             if total_data and time.time()-start_time > timeout:
-                log.debug("Timed out and we received some data, break!")
+                serverlog.debug("Timed out and we received some data, break!")
                 break
             # if nothing received then wait double the timeout
             elif time.time()-start_time > timeout*2:
-                log.debug("After double time out, received nothing, break!")
+                serverlog.debug("After double time out, received nothing, break!")
                 break
             # actual receive something
             try:
                 recv_data = self.request.recv(16384)
                 if recv_data:
-                    log.debug("Received something and append it to total data.")
-                    log.debug("Received data is %s", recv_data)
+                    serverlog.debug("Received something and append it to total data.")
+                    serverlog.debug("Received data is %s", recv_data)
                     total_data.append(recv_data)
                     start_time = time.time()
                 else:
-                    log.debug("recv function didn't get any data, sleep for a while.")
-                    time.sleep(0.005)
+                    serverlog.debug("recv function didn't get any data, sleep for a while.")
+                    time.sleep(timeout/2)
             except:
                 pass
 
         return ''.join(total_data)
 
-    def install_rule_for_gridftp_traffic(self, dpid, address_port, gridftp_transfer_info):
+    def process_rule_for_gridftp_traffic(self, dpid, address_port, gridftp_transfer_info, event_type):
         
         """
         install corresponding openflow rule to switches for GridFTP transfers 
@@ -275,17 +289,49 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         # TODO: this function needs to be rewritten
         #if (!check_within_local_network(ip)):
         if(True):
+
             # figure out whether this gridftp transfer is upload or download
             # 1. If this is a gridftp upload, we don't have a lot of control
             #    over the incoming bandwidth, don't install specific openflow rule
             # 2. If this is a gridftp download, we can direct different file 
             #    transfer streams to different qos queues with different priorities
+
+            # There are two policy modes:
+            # 1. If policy mode is "application_oriented", GridFTP-only queues 
+            #    would be used, the queue id is determined by the priority of file 
+            #    directory, if directory is not in the priority list, the last default 
+            #    queue is applied;
+            # 2. If policy mode is "project_oriented", queues for project users would be 
+            #    used, the queue id is determined by the priority of project user.
+            #    If username does not belong to any project, the last default queue 
+            #    is applied.
+
             if gridftp_transfer_info.transfer_type == "download":
-                # for test purpose, now use two differnet priorities
-                # filename like /test1/* > file like /test2/*
-                # direct traffic to queue 1 and queue2 accordingly
-                if gridftp_transfer_info.filename.startswith("/test1/"):
-                    log.info("install rule for GridFTP file transfer in /test1/")
+                filename = gridftp_transfer_info.filename
+                queue_id = None
+                if policy_mode == 'application_oriented':
+                    for index, directory in enumerate(gridftp_directory_priority):
+                        match = re.match(directory, filename)
+                        if match is not None and filename == match.group(0):
+                            queue_id = index + gridftp_qos_queues_start_id
+                            break
+
+                    if queue_id == None:
+                        queue_id = gridftp_qos_queues_start_id + gridftp_qos_queues_num - 1
+
+                elif policy_mode == 'project_oriented':
+                    config_retrieval = controller_config.config_retrieval(config_filename)
+                    username = gridftp_transfer_info.username
+                    project = config_retrieval.check_user_project(username)
+                    if project is not None:
+                        index = projects_list.index(project)
+                        queue_id = index + general_qos_queues_start_id
+                    else:
+                        queue_id = general_qos_queues_start_id + users_qos_queues_num - 1
+
+                if event_type == 'STARTUP':
+                    serverlog.info("install rule for GridFTP file transfer in %s", policy_mode)
+                    serverlog.info("GridFTP file transfer directory is %s", filename)
                     msg = of.ofp_flow_mod()
                     msg.priority = 12
                     msg.match.dl_type = 0x800
@@ -293,81 +339,30 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                     msg.match.nw_dst = IPAddr(address_port.ip)
                     msg.match.tp_dst = int(address_port.port)
                     msg.idle_timeout = IDLE_TIMEOUT
-                    # hard code port and queue_id
-                    # TODO: how to make the selection of port and queue id more automated
-                    msg.actions.append(of.ofp_action_enqueue(port = 1, queue_id = 1))
+                    msg.actions.append(of.ofp_action_enqueue(port = 1, queue_id = queue_id))
                     core.openflow.sendToDPID(dpid, msg)
-                elif gridftp_transfer_info.filename.startswith("/test2/"):
-                    log.info("install rule for GridFTP file transfer in /test2/")
-                    msg = of.ofp_flow_mod()
+
+                elif event_type == 'SHUTDOWN':
+                    serverlog.info("delete rule for GridFTP file transfer in %s", policy_mode)
+                    serverlog.info("GridFTP file transfer directory is %s", filename)
+                    msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
                     msg.priority = 12
                     msg.match.dl_type = 0x800
                     msg.match.nw_proto = 6
                     msg.match.nw_dst = IPAddr(address_port.ip)
                     msg.match.tp_dst = int(address_port.port)
-                    msg.idle_timeout = IDLE_TIMEOUT
-                    msg.actions.append(of.ofp_action_enqueue(port = 1, queue_id = 2))
-                    core.openflow.sendToDPID(dpid, msg)
-                elif gridftp_transfer_info.filename.startswith("/test3/"):
-                    log.info("install rule for GridFTP file transfer in /test3/")
-                    msg = of.ofp_flow_mod()
-                    msg.priority = 12
-                    msg.match.dl_type = 0x800
-                    msg.match.nw_proto = 6
-                    msg.match.nw_dst = IPAddr(address_port.ip)
-                    msg.match.tp_dst = int(address_port.port)
-                    msg.idle_timeout = IDLE_TIMEOUT
-                    msg.actions.append(of.ofp_action_enqueue(port = 1, queue_id = 3))
-                    core.openflow.sendToDPID(dpid, msg)
-                
+                    core.openflow.sendToDPID(dpid,msg)
+
+                else:
+                    pass
+
             else:
                 pass
 
         else:
             pass
 
-
-    def delete_rule_for_gridftp_traffic(self, dpid, address_port, gridftp_transfer_info):
-
-        """
-        delete corresponding openflow rules on switches for GridFTP file transfer
-        when the GridFTP SHUTDOWN event occurs
-        """
         
-        address = address_port.ip
-        #if !(check_within_local_network(ip)):
-        if(True):
-            if gridftp_transfer_info.transfer_type == "download":
-                if gridftp_transfer_info.filename.startswith("/test1/"):
-                    msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
-                    msg.priority = 12
-                    msg.match.dl_type = 0x800
-                    msg.match.nw_proto = 6
-                    msg.match.nw_dst = IPAddr(address_port.ip)
-                    msg.match.tp_dst = int(address_port.port)
-                    #msg.actions.append(of.ofp_actions_enqueue(port=1, queue_id=1))
-                    core.openflow.sendToDPID(dpid, msg)
-                elif gridftp_transfer_info.filename.startswith("/test2/"):
-                    msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
-                    msg.priority = 12
-                    msg.match.dl_type = 0x800
-                    msg.match.nw_proto = 6
-                    msg.match.nw_dst = IPAddr(address_port.ip)
-                    msg.match.tp_dst = int(address_port.port)
-                    #msg.actions.append(of.ofp_actions_enqueue(port=1, queue_id=2))
-                    core.openflow.sendToDPID(dpid, msg)
-                elif gridftp_transfer_info.filename.startswith("/test3/"):
-                    msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
-                    msg.priority = 12
-                    msg.match.dl_type = 0x800
-                    msg.match.nw_proto = 6
-                    msg.match.nw_dst = IPAddr(address_port.ip)
-                    msg.match.tp_dst = int(address_port.port)
-                    core.openflow.sendToDPID(dpid, msg)
-            else:
-                pass
-        else:
-            pass
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     
@@ -380,8 +375,23 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
 def launch():
+
+    # load configuration and check relevant config options
+    config_retrieval = controller_config.config_retrieval(config_filename)
+    global policy_mode
+    global gridftp_directory_priority
+    global projects_list
+    global gridftp_qos_queues_num
+    global gridftp_qos_queues_start_id
+    global general_qos_queues_num
+    global general_qos_queues_start_id
+
+    policy_mode = config_retrieval.get_policy_mode()
+    projects_list = config_retrieval.get_projects_list()
+    gridftp_directory_priority = config_retrieval.get_gridftp_directory_priority()
+    gridftp_qos_queues_num, gridftp_qos_queues_start_id = config_retrieval.get_qos_info('GridFTP')
+    general_qos_queues_num, general_qos_queues_start_id = config_retrieval.get_qos_info('General')
     
-    #classad_thread_lock = threading.Lock()
     # make HOST to be IPv4 address of the host where the pox controller is running
     HOST = htcondor.param["HTCONDOR_MODULE_HOST"]
     PORT = int(htcondor.param["HTCONDOR_MODULE_PORT"])
@@ -390,11 +400,11 @@ def launch():
     
     def run():
         try:
-            log.debug("Server starts and listens on %s:%i", HOST, PORT)
+            serverlog.debug("Server starts and listens on %s:%i", HOST, PORT)
             server.serve_forever()
         except:
             pass
-        log.info("Server quit")
+        serverlog.info("Server quit")
 
     thread = threading.Thread(target=run)
     thread.daemon = True

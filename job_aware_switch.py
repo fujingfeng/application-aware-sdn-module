@@ -24,6 +24,7 @@ import sys
 import socket
 import classad
 import htcondor
+import sdn_controller_config as controller_config
 
 log = core.getLogger()
 
@@ -36,6 +37,14 @@ core_switch_mac = "00-1e-68-04-1c-20"
 
 local_network_start = []
 local_network_end = []
+
+# application-aware controller configuration related variables
+policy_mode = ''
+general_qos_queues_num = 0
+general_qos_queues_start_id = 0
+htcondor_qos_queues_num = 0
+htcondor_qos_queues_start_id = 0
+config_filename = '/home/bockelman/zzhang/pox/ext/sdn_controller.cfg'
 
 # calculated the range of IP address of local network
 def get_network_info():
@@ -283,24 +292,40 @@ class JobAwareSwitch ():
                         white_list_ip = htcondor.param["WHITE_LIST_IP"]
                         white_list_ip = white_list_ip.split(',')
                         if str(ipv4dst) not in white_list_ip:
-                            group = ''
+                            #group = ''
                             # for test purpose, CMS and NonCMS accounting group are used
                             # if not indicated explicitly, we treat it as NonCMS
-                            if "AcctGroup" in network_classad:
-                                group = network_classad["AcctGroup"]
+                            #if "AcctGroup" in network_classad:
+                            #    group = network_classad["AcctGroup"]
+                            #else:
+                            #    group = "NonCMS"
+
+                            config_retrieval = controller_config.config_retrieval(config_filename)
+                            username = network_classad["Owner"]
+                            project = config_retrieval.check_user_project(username)
+                            if project is not None:
+                                index = project_list.index(project)
+                                if policy_mode == 'application_oriented':
+                                    queue_id = index + htcondor_qos_queues_start_id
+                                elif policy_mode == 'project_oriented':
+                                    queue_id = index + general_qos_queues_start_id
                             else:
-                                group = "NonCMS"
+                                if policy_mode == 'application_oriented':
+                                    queue_id = htcondor_qos_queues_start_id + htcondor_qos_queues_num - 1
+                                elif policy_mode == 'project_oriented':
+                                    queue_id = general_qos_queues_start_id + general_qos_queues_num - 1
 
                             # assign flow to corresponding queue that going outside
                             if packet.dst in self.macToPort:
                                 port = self.macToPort[packet.dst]
                                 log.info("The port number for outgoing traffic is %i", port)
-                                if group == "CMS":
-                                    queue_id = 1
-                                elif group == "NonCMS":
-                                    queue_id = 2
 
-                                log.warning("Direct outgoing traffic for group %s to QoS queue %i", group, queue_id)
+                                #if group == "CMS":
+                                #    queue_id = 1
+                                #elif group == "NonCMS":
+                                #    queue_id = 2
+
+                                log.warning("Direct outgoing traffic for project %s to QoS queue %i", project, queue_id)
                                 msg = of.ofp_flow_mod()
                                 msg.priority = 12
                                 msg.match.dl_type = 0x800
@@ -441,4 +466,15 @@ def launch ():
     Starts an htcondor job-aware switch
     """
     get_network_info()
+
+    config_retrieval = controller_config.config_retrieval(config_filename)
+    global policy_mode
+    global general_qos_queues_num
+    global general_qos_queues_start_id
+    global htcondor_qos_queues_num
+    global htcondor_qos_queues_start_id
+
+    general_qos_queues_num, general_qos_queues_start_id = config_retrieval.get_qos_info('General')
+    htcondor_qos_queues_num, htcondor_qos_queues_start_id = config_retrieval.get_qos_info('HTCondor')
+
     core.registerNew(job_aware_switch)
