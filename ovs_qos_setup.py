@@ -24,30 +24,33 @@ qos_bandwidth_list = []
 application_list = config_retrieval.get_application_list()
 
 for application in application_list:
-    queue_num, queue_start_id = config_retrieval.get_qos_info(application)
-    app_queue_num_list.append(queue_num)
-    app_queue_start_id_list.append(queue_start_id)
-    app_qos_bandwidth = config_retrieval.get_qos_bandwidth(application)
-    for bandwidth in app_qos_bandwidth:
-        qos_bandwidth_list.append(bandwidth)
+  queue_num, queue_start_id = config_retrieval.get_qos_info(application)
+  app_queue_num_list.append(queue_num)
+  app_queue_start_id_list.append(queue_start_id)
+  app_qos_bandwidth = config_retrieval.get_qos_bandwidth(application)
+  for bandwidth in app_qos_bandwidth:
+    qos_bandwidth_list.append(bandwidth)
 
 eth_dev = 'eth0'
 queues = 'queues='
 queue_num = len(qos_bandwidth_list)
 for i in range(queue_num):
-    queues = queues + str(i) + '=@q' + str(i)
-    if i != len(qos_bandwidth_list)-1:
-        queues = queues + ','
+  queues = queues + str(i) + '=@q' + str(i)
+  if i != len(qos_bandwidth_list)-1:
+    queues = queues + ','
 
-ovs_command = 'ovs-vsctl set port ' + eth_dev + ' qos=@newqos -- --id=@newqos ' \
-            + 'create qos type=linux-htb other-config:max-rate=' + qos_bandwidth_list[0]
+ovs_command = ('ovs-vsctl set port ' + eth_dev + ' qos=@newqos -- --id=@newqos '
+              + 'create qos type=linux-htb other-config:max-rate=' 
+              + qos_bandwidth_list[0])
 
 ovs_command = ovs_command + ' ' + queues
 
 for i in range(queue_num):
-    create_queue_str = '-- --id=@q' + str(i) + ' create queue other-config:min-rate=' \
-                    + qos_bandwidth_list[i] + ' other-config:max-rate=' + qos_bandwidth_list[i]
-    ovs_command = ovs_command + ' ' + create_queue_str
+  create_queue_str = ('-- --id=@q' + str(i) + 
+                      ' create queue other-config:min-rate=' + 
+                      qos_bandwidth_list[i] + ' other-config:max-rate=' 
+                      + qos_bandwidth_list[i])
+  ovs_command = ovs_command + ' ' + create_queue_str
 
 #print ovs_command
 os.system(ovs_command)

@@ -65,4 +65,4 @@ config.set('GridFTP', 'gridftp_qos_bandwidth', gridftp_qos_bandwidth_values)
 
 # generate the config file
 with open('sdn_controller.cfg', 'wb') as config_file:
-    config.write(config_file)
+  config.write(config_file)
