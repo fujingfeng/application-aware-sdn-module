@@ -1,17 +1,15 @@
 #!/usr/bin/python
 
 """
-An application level aware switch.
+An switch has awareness of application level information..
 
-It should perform basic switch functionality, which means that
-if there are no special policies are predefined, the network 
-traffic should be able to go through the switch like a regular 
-l2 switch. The difference between this applicaiton-aware switch and 
-regular l2 switch is that when PacketIn event occurs, the handler 
-would ask for network classad of corresponding job that causes 
-this network flow before it assign actions on this flow. It 
-contacts the htcondor module "htcondor_module.py" to get the 
-network classad.
+It performs basic switch functionality, which means that if there 
+are no specific policies predefined, the network traffic should be 
+able to go through the switch like a regular l2 switch. The difference 
+between this applicaiton-aware switch and regular l2 switch is that 
+when PacketIn event occurs, the handler would query proactive_sdn_module 
+for the application level information of this traffic flow before it 
+assign actions on this flow.
 """
 
 from pox.core import core
