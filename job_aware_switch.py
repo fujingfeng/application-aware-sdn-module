@@ -286,7 +286,6 @@ class JobAwareSwitch ():
             white_list_ip = white_list_ip.split(',')
             if str(ipv4dst) not in white_list_ip:
 
-              config = controller_config.ConfigRetrieval(CONFIG_FILENAME)
               username = network_classad["Owner"]
               project = config.check_user_project(username)
               if project is not None:

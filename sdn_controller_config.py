@@ -14,6 +14,7 @@ class ConfigRetrieval:
     self.config_file_name = config_file_name
     self.delimiter = ','
     self.config = ConfigParser.RawConfigParser()
+    self.config.optionxform = str
     self.config.read(self.config_file_name)
 
   def get_policy_mode(self):
@@ -22,7 +23,7 @@ class ConfigRetrieval:
     return the network policy mode, either 'application_oriented'
     or 'user_oriented'
     """
-    return self.config.get('General', 'policy_mode')
+    return self.config.get('General', 'POLICY_MODE')
 
   def get_application_list(self):
         
@@ -31,14 +32,14 @@ class ConfigRetrieval:
     the order of the application in the list matters, it
     determines the order of QoS queue id for each app accordingly.
     """
-    return self.config.get('General', 'application_list').split(self.delimiter)
+    return self.config.get('General', 'APPLICATION_LIST').split(self.delimiter)
 
   def get_projects_list(self):
 
     """
     return the list of projects, such as CMS, ATLAS, etc.
     """
-    return self.config.get('General', 'projects').split(self.delimiter)
+    return self.config.get('General', 'PROJECTS').split(self.delimiter)
 
   def get_project_users(self, project_name):
 
@@ -47,7 +48,7 @@ class ConfigRetrieval:
     if users option corresponding to this project name is not
     defined in config file, return None instead.
     """
-    option = project_name + '_users'
+    option = project_name + '_USERS'
     try:
       return self.config.get('General', option).split(self.delimiter)
     except NoOptionError:
@@ -75,7 +76,7 @@ class ConfigRetrieval:
     directory apperas in the front has higher priority.
     """
     return self.config.get('GridFTP', 
-                           'gridftp_directory_priority').split(self.delimiter)
+                           'GRIDFTP_DIRECTORY_PRIORITY').split(self.delimiter)
 
   def get_qos_info(self, application):
         
@@ -84,9 +85,9 @@ class ConfigRetrieval:
     The result is application dependent, can be HTCondor, GridFTP, General...
     """
     queue_num = self.config.get(application, 
-                                application.lower()+'_qos_queues_num')
+                                application.upper()+'_QOS_QUEUES_NUM')
     queue_start_id = self.config.get(application, 
-                                     application.lower()+'_qos_queues_start_id')
+                                     application.upper()+'_QOS_QUEUES_START_ID')
     return int(queue_num), int(queue_start_id)
 
   def get_qos_bandwidth(self, application):
@@ -96,7 +97,7 @@ class ConfigRetrieval:
     The result is application dependent, can be HTCondor, GridFTP, General...
     """
     qos_bandwidth = self.config.get(application, 
-                                    application.lower()+'_qos_bandwidth')
+                                    application.upper()+'_QOS_BANDWIDTH')
     qos_bandwidth = qos_bandwidth.split(self.delimiter)
     return qos_bandwidth
 
