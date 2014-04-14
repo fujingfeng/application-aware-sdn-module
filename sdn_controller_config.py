@@ -51,7 +51,7 @@ class ConfigRetrieval:
     option = project_name + '_USERS'
     try:
       return self.config.get('General', option).split(self.delimiter)
-    except NoOptionError:
+    except ConfigParser.NoOptionError:
       return None
 
   def check_user_project(self, username):
