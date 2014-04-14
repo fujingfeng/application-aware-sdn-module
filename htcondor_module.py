@@ -125,19 +125,19 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         if "AcctGroup" in job_ad:
           group = job_ad.eval("AcctGroup")
           log.info("The accounting group the user belongs to is: %s", group)
-          log.info("IP address of internal ethernet device is: %s", ip_src)
-          log.info("The owner of submitted job is: %s", job_owner)
+        log.info("IP address of internal ethernet device is: %s", ip_src)
+        log.info("The owner of submitted job is: %s", job_owner)
 
-          network_classad = classad.ClassAd()
-          # insert network policy related classad attributes to network classad
-          network_classad["Owner"] = job_owner
-          network_classad["LarkInnerAddressIPv4"] = ip_src
-          if group is not None:
-            network_classad["AcctGroup"] = group
-            classad_thread_lock.acquire()
-            classad_dict[ip_src] = network_classad.__str__()
-            classad_thread_lock.release()
-            
+        network_classad = classad.ClassAd()
+        # insert network policy related classad attributes to network classad
+        network_classad["Owner"] = job_owner
+        network_classad["LarkInnerAddressIPv4"] = ip_src
+        if group is not None:
+          network_classad["AcctGroup"] = group
+        classad_thread_lock.acquire()
+        classad_dict[ip_src] = network_classad.__str__()
+        classad_thread_lock.release()
+
       elif (lines[1] == "REQUEST"):
         network_classad = None
         ip_src = lines[2]
@@ -145,15 +145,15 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         # first check whether classad_dict has the given key
         if ip_src in classad_dict:
           network_classad = classad_dict[ip_src]
-          classad_thread_lock.release()
-          if network_classad is not None:
-            log.info("Network classad is %s", network_classad)
-            log.info("Found network classad for IP %s, send it back.", ip_src)
-            self.request.sendall("FOUND" + network_classad)
-          else:
-            log.debug("Can't find network classad" \
-                       " for IP %s, send back no found.", ip_src)
-            self.request.sendall("NOFOUND" + "\n")
+        classad_thread_lock.release()
+        if network_classad is not None:
+          log.info("Network classad is %s", network_classad)
+          log.info("Found network classad for IP %s, send it back.", ip_src)
+          self.request.sendall("FOUND" + network_classad)
+        else:
+          log.debug("Can't find network classad" \
+                    " for IP %s, send back no found.", ip_src)
+        self.request.sendall("NOFOUND" + "\n")
 
       elif (lines[1] == "CLEAN"):
         ip_src = lines[1]
