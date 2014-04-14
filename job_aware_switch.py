@@ -20,12 +20,9 @@ from pox.lib.util import dpid_to_str
 import socket
 import classad
 import htcondor
-import sdn_controller_config as controller_config
+from sdn_controller_config import *
 
 log = core.getLogger()
-
-HARD_TIMEOUT = 600
-IDLE_TIMEOUT = 5
 
 # indicate the mac address  of the core switch
 # this should be the mac address of MLXe at HCC
@@ -33,14 +30,6 @@ core_switch_mac = "00-1e-68-04-1c-20"
 
 local_network_start = []
 local_network_end = []
-
-# application-aware controller configuration related variables
-policy_mode = ''
-general_queues_num = 0
-general_queues_start_id = 0
-htcondor_queues_num = 0
-htcondor_queues_start_id = 0
-CONFIG_FILENAME = '/home/bockelman/zzhang/pox/ext/sdn_controller.cfg'
 
 # calculated the range of IP address of local network
 def get_network_info():
@@ -463,15 +452,5 @@ def launch ():
   Starts an htcondor job-aware switch
   """
   get_network_info()
-
-  config = controller_config.ConfigRetrieval(CONFIG_FILENAME)
-  global policy_mode
-  global general_queues_num
-  global general_queues_start_id
-  global htcondor_queues_num
-  global htcondor_queues_start_id
-
-  general_queues_num, general_queues_start_id = config.get_qos_info('General')
-  htcondor_queues_num, htcondor_queues_start_id = config.get_qos_info('HTCondor')
 
   core.registerNew(job_aware_switch)

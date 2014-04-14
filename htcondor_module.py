@@ -43,7 +43,7 @@ import pox.openflow.libopenflow_01 as of
 from pox.lib.util import dpid_to_str
 from pox.lib.addresses import IPAddr
 from job_aware_switch import check_within_local_network
-import sdn_controller_config as controller_config
+from sdn_controller_config import *
 
 log = core.getLogger()
 
@@ -65,19 +65,6 @@ GridftpTransferInfo = namedtuple('GridftpTransferInfo',
 core_switch_mac = "00-1a-a0-09-fb-c9"
 core_switch_dpid = 0
 
-# hard and idle timeout config
-HARD_TIMEOUT = 600
-IDLE_TIMEOUT = 5
-
-# application-aware controller configuration related variables
-policy_mode = ''
-projects_list = []
-gridftp_directory_priority = []
-gridftp_queues_num = 0
-gridftp_queues_start_id = 0
-general_queues_num = 0
-general_queues_start_id = 0
-CONFIG_FILENAME = '/home/bockelman/zzhang/pox/ext/sdn_controller.cfg'
 
 class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
 
@@ -137,7 +124,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         classad_thread_lock.acquire()
         classad_dict[ip_src] = network_classad.__str__()
         classad_thread_lock.release()
-
+            
       elif (lines[1] == "REQUEST"):
         network_classad = None
         ip_src = lines[2]
@@ -321,7 +308,6 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
             queue_id = gridftp_queues_start_id + gridftp_queues_num - 1
 
         elif policy_mode == 'project_oriented':
-          config = controller_config.ConfigRetrieval(CONFIG_FILENAME)
           username = gridftp_transfer_info.username
           project = config.check_user_project(username)
           if project is not None:
@@ -387,22 +373,6 @@ def launch():
   openflow rule to core switch according to pre-configure policy.
   """
 
-  # load configuration and check relevant config options
-  config = controller_config.ConfigRetrieval(CONFIG_FILENAME)
-  global policy_mode
-  global gridftp_directory_priority
-  global projects_list
-  global gridftp_queues_num
-  global gridftp_queues_start_id
-  global general_queues_num
-  global general_queues_start_id
-
-  policy_mode = config.get_policy_mode()
-  projects_list = config.get_projects_list()
-  gridftp_directory_priority = config.get_gridftp_directory_priority()
-  gridftp_queues_num, gridftp_queues_start_id = config.get_qos_info('GridFTP')
-  general_queues_num, general_queues_start_id = config.get_qos_info('General')
-    
   # make host to be IPv4 address of the host where the pox controller is running
   host = htcondor.param["HTCONDOR_MODULE_HOST"]
   port = int(htcondor.param["HTCONDOR_MODULE_PORT"])
