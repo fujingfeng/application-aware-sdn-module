@@ -59,7 +59,7 @@ def check_within_local_network(dest):
       return False
   return True
 
-class JobAwareSwitch ():
+class ApplicationAwareSwitch ():
     
   def __init__ (self, connection):
 
@@ -431,7 +431,7 @@ class JobAwareSwitch ():
     network_classad = classad.ClassAd(network_classad)
     return network_classad
 
-class job_aware_switch (object):
+class application_aware_switch (object):
 
   """
   Wait for OpenFlow switches to connect and make them applicaiton-aware switches
@@ -441,13 +441,12 @@ class job_aware_switch (object):
 
   def _handle_ConnectionUp (self, event):
     log.debug("Connection %s" % (event.connection,))
-    JobAwareSwitch(event.connection)
+    ApplicationAwareSwitch(event.connection)
 
 def launch ():
 
   """
-  Starts an htcondor job-aware switch
+  Starts an application-aware switch
   """
   get_network_info()
-
-  core.registerNew(job_aware_switch)
+  core.registerNew(application_aware_switch)
