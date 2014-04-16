@@ -86,7 +86,7 @@ class JobAwareSwitch ():
       self.connection.send(msg)
 
     # parse the mac address of switch which initiate this connection
-    connected_switch_mac = dpid_to_str(self.connection.dpid)
+    connected_switch_mac = dpid_to_str(self.connection.dpid).split('|')[0]
     log.debug("The detected mac address is %s", connected_switch_mac)
     if connected_switch_mac == core_switch_mac:
       self.handle_packet_for_core_switch(event, packet)

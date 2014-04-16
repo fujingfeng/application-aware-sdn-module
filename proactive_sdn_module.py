@@ -42,7 +42,7 @@ from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.util import dpid_to_str
 from pox.lib.addresses import IPAddr
-from job_aware_switch import check_within_local_network
+from application_aware_switch import check_within_local_network
 from sdn_controller_config import *
 
 log = core.getLogger()
@@ -94,7 +94,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
     global core_switch_dpid
     if core_switch_dpid == 0:
       for connection in core.openflow.connections:
-        if(core_switch_mac == dpid_to_str(connection.dpid)):
+        if core_switch_mac == dpid_to_str(connection.dpid).split('|')[0]:
           core_switch_dpid = connection.dpid
           break
           
