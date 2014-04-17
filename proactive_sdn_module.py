@@ -140,7 +140,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         else:
           log.debug("Can't find network classad" \
                     " for IP %s, send back no found.", ip_src)
-        self.request.sendall("NOFOUND" + "\n")
+          self.request.sendall("NOFOUND" + "\n")
 
       elif (lines[1] == "CLEAN"):
         ip_src = lines[1]
