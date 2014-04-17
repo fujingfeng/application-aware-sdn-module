@@ -143,7 +143,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
           self.request.sendall("NOFOUND" + "\n")
 
       elif (lines[1] == "CLEAN"):
-        ip_src = lines[1]
+        ip_src = lines[2]
         classad_thread_lock.acquire()
         # check whether classad_dict has the given key and delete corresponding
         # network classad if it is in the dictionary
