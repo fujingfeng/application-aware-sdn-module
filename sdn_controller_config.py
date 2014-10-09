@@ -48,7 +48,7 @@ class ConfigRetrieval:
     if users option corresponding to this project name is not
     defined in config file, return None instead.
     """
-    option = project_name + '_USERS'
+    option = project_name.upper() + '_USERS'
     try:
       return self.config.get('General', option).split(self.delimiter)
     except ConfigParser.NoOptionError:
@@ -109,7 +109,7 @@ CONFIG_FILENAME = '/home/bockelman/zzhang/pox/ext/sdn_controller.cfg'
 # retrieval all the option value for other modules to use
 config = ConfigRetrieval(CONFIG_FILENAME)
 policy_mode = config.get_policy_mode()
-project_list = config.get_projects_list()
+projects_list = config.get_projects_list()
 gridftp_directory_priority = config.get_gridftp_directory_priority()
 gridftp_queues_num, gridftp_queues_start_id = config.get_qos_info('GridFTP')
 htcondor_queues_num, htcondor_queues_start_id = config.get_qos_info('HTCondor')

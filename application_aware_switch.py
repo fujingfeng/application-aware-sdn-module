@@ -287,16 +287,20 @@ class ApplicationAwareSwitch ():
               username = network_classad["Owner"]
               project = config.check_user_project(username)
               if project is not None:
-                index = project_list.index(project)
+                index = projects_list.index(project)
                 if policy_mode == 'application_oriented':
                   queue_id = index + htcondor_queues_start_id
+                  #dscp_value = 
                 elif policy_mode == 'project_oriented':
                   queue_id = index + general_queues_start_id
+                  #dscp_value = 
               else:
                 if policy_mode == 'application_oriented':
                   queue_id = htcondor_queues_start_id + htcondor_queues_num - 1
+                  #dscp_value = 
                 elif policy_mode == 'project_oriented':
                   queue_id = general_queues_start_id + general_queues_num - 1
+                  #dscp_value = 
 
               # assign flow to corresponding queue that going outside
               if packet.dst in self.macToPort:
@@ -316,6 +320,19 @@ class ApplicationAwareSwitch ():
                 msg.buffer_id = event.ofp.buffer_id
                 self.connection.send(msg)
                 return
+
+              # use DSCP bits for QoS instead use dedicated queue
+              #msg = of.ofp_flow_mod()
+              #msg.priority = 12
+              #msg.match.dl_type = 0x800
+              #msg.match.nw_src = ipv4src
+              #msg.match.nw_dst = ipv4dst
+              #msg.idle_timeout = IDLE_TIMEOUT
+              #msg.hard_timeout = HARD_TIMEOUT
+              #msg.actions.append(of.ofp_action_nw_tos(dscp_value))
+              #msg.buffer_id = event.ofp.buffer_id
+              #self.connection.send(msg)
+
                 
       elif lines[0] == "NOFOUND":
         pass

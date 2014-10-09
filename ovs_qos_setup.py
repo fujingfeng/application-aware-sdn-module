@@ -13,7 +13,7 @@ import sdn_controller_config as controller_config
 import os
 
 config_file = '/home/bockelman/zzhang/pox/ext/sdn_controller.cfg'
-config_retrieval = controller_config.config_retrieval(config_file)
+config = controller_config.ConfigRetrieval(config_file)
 
 app_queue_num_list = []
 app_queue_start_id_list = []
@@ -21,13 +21,13 @@ app_queue_start_id_list = []
 # list of bandwidths for all the qos queues in order
 qos_bandwidth_list = []
 
-application_list = config_retrieval.get_application_list()
+application_list = config.get_application_list()
 
 for application in application_list:
-  queue_num, queue_start_id = config_retrieval.get_qos_info(application)
+  queue_num, queue_start_id = config.get_qos_info(application)
   app_queue_num_list.append(queue_num)
   app_queue_start_id_list.append(queue_start_id)
-  app_qos_bandwidth = config_retrieval.get_qos_bandwidth(application)
+  app_qos_bandwidth = config.get_qos_bandwidth(application)
   for bandwidth in app_qos_bandwidth:
     qos_bandwidth_list.append(bandwidth)
 
