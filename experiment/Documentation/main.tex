@@ -1,0 +1,136 @@
+\documentclass[a4paper]{article}
+
+\usepackage[english]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{color}
+\usepackage[colorinlistoftodos]{todonotes}
+
+\usepackage{geometry}
+ \geometry{
+ a4paper,
+ total={170mm,257mm},
+ left=20mm,
+ top=20mm,
+ }
+
+\title{Experiment Configuration for GridFTP-SDN}
+
+\author{Zhe Zhang}
+
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document illustrates the detailed work flow in steps to re-produce the GridFTP SDN experiment. This includes the packages that need to be installed, configuration files need to be modified and all the tricky details about the experiment that need to be taken care of The goal of this documentation is to make future experiments repetition much easier.
+\end{abstract}
+
+\section{HTCondor}
+\subsection{Installing HTCondor}
+There are two main branches in HTcondor repositories that I am working on. {\tt network\_namespaces} is corresponding to the ``Lark'' project and {\tt network\_negotiator} is corresponding to the more recent network assisted HTCondor matchmaking.\newline \newline
+To checkout the {\tt network\_namespaces} branch do: 
+
+{\tt git checkout network\_namespaces}\newline \newline
+The latest version that integrates with network namespace support is $8.3.2$ (This has the default route bug fixed. Previous version of Lark codes cannot add default route to the inner private network namespace veth device, thus making it possible for jobs running in that private network namespace to communicate with outside network). Instead of using the old {\tt fedpkg-condor-hcc} tool to build the RPM, the new work flow to build the RPM is in the following:
+
+{\tt cd \$HOME/htcondor}
+
+{\tt rpm -i build/packaging/srpm/condor-8.3.2-0.1.5fd9bb7.git.el6.src.rpm}
+
+{\tt rpmbuild -ba ~/rpmbuild/SPECS/condor.spec}\newline \newline
+Of course the source RPM should be replaced with the one you build. Useful commands for checking installed RPM and install/uninstall RPM:
+
+{\tt sudo rpm -qa | grep condor}
+
+{\tt sudo rpm -ev --nodeps \$ALL\_THE\_CONDOR\_RELATED\_RPMS}
+
+{\tt sudo yum install \$ALL\_THE\_CONDOR\_RELATED\_RPMS}
+
+\subsection{Configuration}
+After HTCondor with network namespace support is successfully installed, we need to configure HTCondor to make it work correctly.\newline \newline
+For central matchmaker: remember to disable (comment out) the {\tt condor\_config.local} and the example configuration files can be found at the {\tt application-aware-sdn-module} github repository under directory  {\tt experiment/}. It also includes some of the configuration for {\tt network\_negotiator} work.\newline \newline
+For worker nodes: corresponding configuration files can also be found at the directory mentioned above.
+
+\subsection{Submission Script}
+The experiment has two HTCondor jobs, each of them belongs to a different user. (e.g. {\tt zzhang} vs {\tt larkuser1}). To submit condor job script under another user do: {\tt sudo su- \$USERNAME}, which will take you to the home directory of the user.\newline \newline
+The submission script is {\tt ftp\_upload\_submit\_1} (also in github repo). The only thing needs to be changed is the FTP server IP address in the argument list. These two users upload files to different FTP servers.\newline \newline
+After two jobs are submitted, we can use {\tt condor\_release} to release the hold for the two jobs.\newline \newline
+Useful command: {\tt fallocate -l 10G gentoo\_root.img} quickly generate file with arbitrary size.
+
+\subsection{Debugging}
+There could be problems running these HTCondor jobs.
+\begin{itemize}
+\item Make sure that the indicated lark plugin path is correct and can be loaded.
+\item Check HTCondor log to make sure DHCP offer is received, if not use {\tt tcpdump} to debug: {
+\tt tcpdump -vnes0 -i eth0 port 67 or port 68} It is possible that DHCP server does not have dynamic addresses.
+\item When initially there is no DHCP lease cache available, the current SDN controller code seems to block the private network namespace from receiving the DHCP packet. (\textcolor{red}{This needs to be further examined and debugged}.) The work around is to first run HTCondor lark job without SDN enabled to get a DHCP offer lease cache, then run it again with SDN enabled, HTCondor can use the DHCP offer in the cache. Directory is {\tt /var/lock/condor/lark/dhcp\_leases/}
+\item There is a MACRO to disable network namespace support for file transfer: {\tt ENABLE\_NETWORK\_NAMESPACE\_FOR\_FILETRANSFER}, by default it is {\tt TRUE}. Currently the network namespace integration with file transfer is not good enough, we need to set this MACRO to be {\tt FALSE} explicitly to make it work.
+\end{itemize}
+\section{GridFTP}
+Currently, {\tt hcc-lark02.unl.edu} is used as the GridFTP server together with HDFS installed as the underlying file system.
+\subsection{Installed Packages}
+\begin{itemize}
+\item GridFTP server: {\tt sudo yum install globus-gridftp-server globus-gridftp-server-devel}
+\item Hadoop-HDFS: {\tt sudo yum install hadoop-hdfs}
+\item HDFS datanode and namenode: {\tt sudo yum install hadoop-hdfs-namenode \& sudo yum install hadoop-hdfs-datanode}
+\item globus-xio-devel: {\tt sudo yum install globus-xio-devel}
+\item Compile xio\_callout and install it
+\item Compile gridftp\_hdfs and install it
+\item Install library libtool: {\tt sudo yum install libtool}
+\item When compile gridftp\_hdfs, go to the home directory gridftp\_hdfs, not the one inside xio\_callout
+\item Install {\tt java-openjdk-devel}
+\item Install {\tt openssl openssl-devel}
+\item Set up configuration files like: {\tt core-site.xml} and {\tt hdfs-site.xml}, the parameters of these two files can be found in hadoop website, and need to change the indicated directory’s user and group to be {\tt hdfs:hadoop}, otherwise datanode and namenode cannot access them. Need to format namenode. (When format, need to run the command {\tt hadoop namenode -format} under hdfs user) {\tt sudo -H -u hdfs hadoop namenode -format} useful link: \url{ http://hadoop.apache.org/docs/r1.0.4/cluster\_setup.html}
+\item need to create {\tt hadoop-env.sh} in directory {\tt /etc/hadoop/conf} and within {\tt export JAVA\_HOME = dir/to/jdk}
+\item install {\tt globus-gridftp-server-progs}
+\end{itemize}
+
+\subsection{Server Side Execution}
+First, run command {\tt source /usr/share/gridftp-hdfs/gridftp-hdfs-environment} need to modify {\tt JAVA\_HOME HADOOP\_HOME} environment variable, also make sure to include all the necessary jar files inside of {\tt \$HADOOP\_HOME}.\newline\newline
+Command to run GridFTP server (don't run it with sudo which would clear the environment variables set up via the above command): {\tt /bin/sh -c 'LD\_LIBRARY\_PATH=/usr/lib/jvm/jre-1.7.0/lib/amd64/server/:/usr/lib/jvm/jre-1.7.0/lib/amd64/ globus-gridftp-server -c /etc/gridftp-hdfs/gridftp.conf -C /etc/gridftp.d -log-level ALL -control-interface 129.93.241.12 -p 5000 -password-file /home/bockelman/zzhang/pwfile'}\newline\newline
+Command to generate password for user and write to password file: {\tt globus-gridftp-password} The experiment for WAN GridFTP file transfer is from the same user , but to access files in different directories. (Even though it should be different users)\newline \newline
+Overall need to make sure {\tt JAVA\_HOME}, {\tt HADOOP\_HOME} and all the jar files are correctly set up and included. It is possible the version of {\tt HDFS} or {\tt Hadoop} installed is not compatible with {\tt GridFTP-HDFS} installed. Thus we need to make sure to update the configuration in {\tt GridFTP-HDFS} for the right version of {\tt Hadoop}.
+\subsection{Client Side Execution}
+At client side, use command {\tt globus-url-copy} to do file transfer. (Client downloads file from GridFTP server) {\tt sudo apt-get install globus-gass-copy-progs}.\newline \newline
+Command to download file from GridFTP server: 
+
+{\tt globus-url-copy -v ftp://zzhang:passwd@hcc-lark02.unl.edu:5000/tmp/group file:///etc/group}
+
+\subsection{Useful Commands}
+Copy from local file system to HDFS
+{\tt hadoop fs -put /tmp/test.img /test3/test.img}
+
+\subsection{Useful Links}
+For GridFTP-HDFS:\newline
+\url{https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallHadoopSE}\newline
+\url{https://twiki.grid.iu.edu/bin/view/Documentation/Release3/InstallHadoop200SE}\newline \newline
+For GridFTP administration:\newline
+\url{http://toolkit.globus.org/toolkit/docs/latest-stable/gridftp/admin/index.html#gridftp-config-overview}
+\section{OpenFlow SDN Controller}
+Detailed README doc can be found at github repo {\tt application-aware-sdn-module}. The command to execute the implemented SDN OpenFlow controller is: 
+
+{\tt ./pox.py log.level --DEBUG application\_aware\_switch proactive\_sdn\_module}\newline
+The command that can be used to show the mapping between numerical port number and Ethernet device name: {\tt ovs-ofctl show <br>}, to show the datapath number: {\tt ovs-dpctl show <br>}.\newline \newline 
+To apply Open vSwitch QoS rate limiting with different QoS queues, use the implemented script {\tt ovs\_qos\_setup.py} and correspondingly {\tt ovs\_qos\_cleanup.py} is used to clear all the QoS queues. Sometime, Open vSwitch returned with errors when cleaning up because of some existing references, run this command to fix before execute the implemented {\tt ovs\_qos\_cleanup.py} script: {\tt ovs-vsctl clear qos eth0 queues}, {\tt eth0} should be replaced with the actual port that has QoS queues configured.\newline \newline
+{\tt sdn\_controller.cfg} is the configuration file to indicate network policy (application\_oriented vs project\_oriented) and QoS bandwidth rate limiting numbers, etc.
+
+
+\section{FTP Server-vsftpd}
+To make it simple, we enable the anonymous user access for vsftpd server. The example configuration file is {\tt vsftpd.conf} in the github repo. On FTP server: do {\tt sudo yum install vsftpd} or {\tt sudo apt-get install vsftpd}, on client do {\tt sudo yum install ftp} (then client can use {\tt curl} to upload and download). On Ubuntu, the file directory for FTP server is: {\tt /srv/ftp}, on CentOS it is {\tt /var/ftp}.\newline \newline
+Disable {\tt iptables} first to make sure firewall does not block traffic.\newline \newline
+To make sure anonymous user can upload file, remember to set selinux to be permissive. If you modify the configuration file at {\tt /etc/selinux/config}, you have to restart to make it take effect, otherwise you can type "{\tt setenforce 0}" to make it take effect immediately.
+Another possible solution is use: {\tt setsebool -P ftp\_home\_dir 1}
+This commands makes selinux to allow ftp and at the same time Selinux is not disabled. It's not recommended to disable Selinux.\newline \newline
+Also need to make sure {\tt /var/ftp} to be owned by root:root, (of course this is by default), if use command it is like: {\tt chown -R root.root /var/ftp/}, after that you also need to make sure {\tt /var/ftp/pub} is set to be $777$ by using {\tt chmod}.\newline \newline
+The best practice is to create a {\tt pub} directory under {\tt /var/ftp} or {\tt /srv/ftp}, change its permission to $777$. Then the corresponding command to upload to that directory is: {\tt curl -4 -T 5GB\_1.zip ftp://128.104.222.79/pub/ --user anonymous:} Notice that the {\tt pub} directory is used immediately after the server IP address. Basically {\tt /} means the root directory for {\tt vsftpd} server, which is {\tt /var/ftp} or {\tt /srv/ftp} depending the Linux distributions used.
+\section{Ganglia}
+The example Ganglia configurations files are: {\tt gmond.conf} (for client) and {\tt gmetad.conf} for server. Both of these are included in the github repo. And there is a very clear tutorial to follow for setting up Ganglia: \url{ https://www.digitalocean.com/community/tutorials/introduction-to-ganglia-on-ubuntu-14-04}\newline \newline
+Since we are using CloudLab for experiment, we can request for a dedicated Ganglia server node and install Ganglia client on the two GridFTP client nodes. The GridFTP related file transfer rates can be shown at the Ganglia server.
+\section{Generating Experiment Plots}
+After the experiments, CSV files can be collected from Ganglia and we can use {\tt plot\_generate.py} to draw the figures for these experiment. The actual scripts and corresponding CSV files the scripts operate on are included in the github repo for reference.
+
+\end{document}

@@ -1,0 +1,19 @@
+
+DAEMON_LIST = COLLECTOR, MASTER, NEGOTIATOR, SCHEDD
+START = FALSE
+
+# note: next line still needs to go in /etc/condor_config to work
+#ENABLE_IPV6 = TRUE
+#NETWORK_INTERFACE = 2600:900:6:1302:21a:a0ff:fe09:a3b9
+
+#FLOCK_TO = lark00.chtc.wisc.edu
+#FLOCK_FROM = lark00.chtc.wisc.edu
+
+#NEGOTIATOR_USE_SLOT_WEIGHTS = false
+
+#Job_Glidein_CMSSite = "$$(Glidein_CMSSite)"
+#SUBMIT_EXPRS = $(SUBMIT_EXPRS), Job_Glidein_CMSSite
+
+#TRANSFER_QUEUE_USER_EXPR = strcat("Owner_",Owner,"_Destination_",Job_Glidein_CMSSite)
+#STATISTICS_TO_PUBLISH_LIST = TRANSFER:2
+

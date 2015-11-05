@@ -1,0 +1,62 @@
+
+CONDOR_HOST = hcc-lark01.unl.edu
+#CONDOR_HOST = hcc-lark02.unl.edu
+COLLECTOR_NAME = Nebraska Lark Testbed
+FILESYSTEM_DOMAIN = unl.edu
+UID_DOMAIN = unl.edu
+
+ALLOW_WRITE = hcc-lark01.unl.edu, hcc-lark02.unl.edu, hcc-lark03.unl.edu, hcc-lark04.unl.edu, hcc-lark05.unl.edu, lark00.chtc.wisc.edu, lark01.chtc.wisc.edu,129.93.241.0/26
+
+#STARTER.PLUGINS = /usr/lib64/condor/plugins/lark-plugin.so
+STARTER.PLUGINS = /usr/libexec/condor/lark-plugin.so
+#STARTER.PLUGINS = /home/bockelman/zzhang/htcondor/src/condor_contrib/lark/lark-plugin.so
+#STARTER_NETWORK_POLICY_SCRIPT_PATH = /usr/libexec/condor/lark_network_policy.py
+
+#USE_PID_NAMESPACE = true
+USE_NETWORK_NAMESPACES = true
+LARK_NETWORK_ACCOUNTING = true
+STARTER_DEBUG = D_FULLDEBUG
+#STARTER_DEBUG = D_NETWORK
+STARTD_DEBUG = D_FULLDEBUG
+
+# Test purpose, use latest build
+#RELEASE_DIR = /usr/local/personal_condor
+#STARTER.PLUGINS = /home/bockelman/zzhang/htcondor/src/condor_contrib/lark/lark-plugin.so
+
+
+#MACHINE_RESOURCE_INVENTORY_BANDWIDTH = /etc/condor/ethtooltest
+#MACHINE_RESOURCE_INVENTORY_BANDWIDTH = /etc/condor/bandwidth_detection.sh
+
+SLOT_TYPE_1 = cpus=100%,auto
+SLOT_TYPE_1_PARTITIONABLE = true
+NUM_SLOTS_TYPE_1 = 1
+
+STARTER_INITIAL_UPDATE_INTERVAL = 5
+STARTER_UPDATE_INTERVAL = 2
+
+HTCONDOR_MODULE_HOST = 129.93.241.11
+HTCONDOR_MODULE_PORT = 9008
+NETWORK_NAMESPACE_CREATE_SCRIPT = /etc/condor/lark_setup_script.py
+NETWORK_NAMESPACE_DELETE_SCRIPT = /etc/condor/lark_cleanup_script.py
+
+STARTD_ATTRS = LarkNetworkType, LarkBridgeDevice, LarkAddressType
+#LarkNetworkType = "nat"
+#LarkNetworkType = "bridge"
+LarkNetworkType = "ovs_bridge"
+LarkBridgeDevice = "eth0"
+LarkAddressType = "dhcp"
+
+# Test IPv6 purpose
+#SLOT1_LarkInnerAddressIPv4 = "10.0.0.2"
+#SLOT1_LarkExternalAddressIPv4 = "10.0.0.1"
+#STARTD_ATTRS = $(STARTD_ATTRS) LarkInnerAddressIPv4, LarkExternalAddressIPv4
+
+ENABLE_NETWORK_NAMESPACE_FOR_FILETRANSFER = false
+#Requirements = (SlotType =?= "Partitionable") || (TARGET.RequestBandwidth =?= MY.Bandwidth)
+#START = $(START) && $(Requirements)
+#CLAIM_PARTITIONABLE_LEFTOVERS = false
+CLAIM_WORKLIFE = 0
+#NUM_CPUS = 1
+
+#PREEMPT_VANILLA = false
+START = true

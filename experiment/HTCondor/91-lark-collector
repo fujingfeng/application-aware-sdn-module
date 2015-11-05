@@ -1,0 +1,33 @@
+
+CONDOR_HOST = hcc-lark01.unl.edu
+COLLECTOR_NAME = Nebraska Lark Testbed
+FILESYSTEM_DOMAIN = unl.edu
+UID_DOMAIN = unl.edu
+
+ALLOW_WRITE = hcc-larkvm1.unl.edu, hcc-larkvm2.unl.edu, hcc-lark01.unl.edu, hcc-lark02.unl.edu, hcc-lark03.unl.edu, hcc-lark04.unl.edu, hcc-lark05.unl.edu, lark00.chtc.wisc.edu, lark01.chtc.wisc.edu, 129.93.241.0/26
+# hcc-andrew.unl.edu
+
+#STARTER.PLUGINS = /usr/lib64/condor/plugins/lark-plugin.so
+#STARTER_NETWORK_POLICY_SCRIPT_PATH = /usr/libexec/condor/lark_network_policy.py
+
+USE_NETWORK_NAMESPACES = true
+LARK_NETWORK_ACCOUNTING = true
+STARTER_DEBUG = D_FULLDEBUG
+NEGOTIATOR_DEBUG = D_FULLDEBUG
+COLLECTOR_DEBUG = D_FULLDEBUG
+SCHEDD_DEBUG = D_FULLDEBUG
+STARTD_DEBUG = D_FULLDEBUG
+
+#BLOCKED_USERS = larkuser1
+BLOCKED_USERS = zzhang
+BLOCKED_USERS_OUTSIDE = larkuser2
+HTCONDOR_MODULE_HOST = 129.93.241.11
+HTCONDOR_MODULE_PORT = 9008
+WHITE_LIST_IP = 255.255.255.255,129.93.241.11,129.93.239.156,129.93.239.161,129.93.241.1
+#CLAIM_WORKLIFE = 0
+
+#GROUP_NAMES = CMS, NonCMS
+#GROUP_QUOTA_DYNAMIC_CMS = 0.5
+#GROUP_QUOTA_DYNAMIC_NonCMS = 0.5
+
+STATISTICS_TO_PUBLISH = DEFAULT:1, TRANSFER:2, SCHEDD:3

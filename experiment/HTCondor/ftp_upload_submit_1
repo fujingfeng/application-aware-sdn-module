@@ -1,0 +1,27 @@
+Universe = vanilla
+Executable = /usr/bin/curl
+INPUT = 5GB_1.zip
+Output = ftp_test.out.1
+Error = ftp_test.err.1
+Log = ftp_test.log.1
+#input = /home/bockelman/zzhang/test_submit_script/WAN_Experiments/1GB_2_1.zip
+#+InboundConnectivity = True
+#+OutboundConnectivity = True
+#+NetworkAccounting = True
+#request_bandwidth = 10
+#Requirements = TARGET.Bandwidth == 10
+Requirements = TARGET.Machine == "hcc-larkvm1.unl.edu"
+should_transfer_files = IF_NEEDED
+when_to_transfer_output = on_exit
+#accounting_group = CMS
+#Arguments = -4 -O http://download.thinkbroadband.com/20MB.zip
+#Arguments = -4 -O http://hcc-lark04.unl.edu/100MB.zip
+#Arguments = -4 -O http://hcc-mirror.unl.edu/idx.html
+#Arguments = -4 -T 5GB_1.zip ftp://128.104.59.147/pub/ --user anonymous:
+#Arguments = -w time_total -4 -T 1GB_1.zip ftp://129.93.241.11/pub/ --user anonymous:
+Arguments = -4 -T 5GB_1.zip ftp://128.104.222.79/pub/ --user anonymous:
+#Arguments = -T 512MB.zip ftp://hcc-lark04.unl.edu/pub/ --user anonymous:mypassword
+hold = True
+#request_cpus = 1
++QoS = "high"
+Queue

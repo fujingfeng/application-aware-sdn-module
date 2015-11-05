@@ -1,0 +1,11 @@
+
+DAEMON_LIST = MASTER, STARTD  
+#DAEMON_LIST = COLLECTOR, MASTER, NEGOTIATOR, SCHEDD, STARTD  
+START = TRUE
+
+# note: next line still needs to go in /etc/condor_config to work
+#ENABLE_IPV6 = TRUE
+#NETWORK_INTERFACE = 2600:900:6:1302:21a:a0ff:fe09:fbc9
+
+#STARTD_EXPRS = $(STARTD_EXPRS), Glidein_CMSSite
+#Glidein_CMSSite = "T2_US_Nebraska"
